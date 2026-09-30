@@ -1,2 +1,1 @@
-# Practicas-IoT-
-# Practicas-IoT-
+# Practicas-IoT
