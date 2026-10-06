@@ -2,12 +2,12 @@
  *  Práctica 1.A - Ejercicio propuesto (GII-IoT) - Arduino MKR 1310
  *
  *  1. Ajusta el RTC con la fecha y hora de compilación.
- *  2. Alarma periódica del RTC (cada 10 s): genera una cadena con la fecha/hora.
- *  3. La cadena se guarda en un fichero sobre la FLASH externa (W25Q16, SPIFFS).
- *  4. El micro duerme indefinidamente (LowPower.sleep()) y lo despierta el RTC.
- *  5. EXTRA: interrupción externa por flanco de bajada (pin con pull-up) que
- *     añade una línea indicando que se debe a una interrupción externa.
- *     (Opcional, fuera del guión: pin 5 -> vuelca el fichero por SerialUSB)
+ *  2. Alarma periódica del RTC cada 10 s.
+ *  3. La cadena se guarda en un fichero sobre la FLASH.
+ *  4. El micro se pone en modo descanso y lo despierta el RTC o las interrupciónes externas.
+ *  5. EXTRAS: interrupción externas con resistencias de PULL_UP
+ *     - WRITE_PIN añade una línea al fichero que se debe a una interrupción externa
+ *     - DUMP_PIN  vuelca el fichero por SerialUSB
  *
  * ----------------------------------------------------------------------------
  */
@@ -27,11 +27,11 @@ const char filename[] = "fechas.txt";
 const char external_msg[] = "linea anadida por interrupcion externa (pin 4)";
 
 // Parámetros
-#define PERIOD_SEC        10      // periodo de la "lectura del sensor"
-#define OFFSET_SEC        2       // primera alarma a los 2 s
-#define WRITE_PIN         4       // interrupción externa -> escribe línea (extra)
-#define DUMP_PIN          5       // volcado del fichero por SerialUSB
-#define DEBOUNCE_MS       400     // histéresis
+#define PERIOD_SEC            10      // periodo de la alarma
+#define OFFSET_SEC            2       // delay de la primera alarma
+#define WRITE_PIN             4       // escribe línea de la fecha por interrupción externa 
+#define DUMP_PIN              5       // volcado del fichero por SerialUSB
+#define INIBITIONTIME_MS      400     // histéresis
 
 
 // Variables las ISR
@@ -97,6 +97,7 @@ void setup()
   LowPower.attachInterruptWakeup(DUMP_PIN, dumpISR, FALLING);
   
   SerialUSB.println("started ");
+  //Apagamos la luz cuando se termina de preparar
   digitalWrite(LED_BUILTIN, LOW);
 }
 
@@ -117,14 +118,14 @@ void loop()
     snprintf(message, sizeof(message), "%s - %s\n", getDateTime(), external_msg);
     writeLine(message);
 
-    delay(DEBOUNCE_MS);
+    delay(INIBITIONTIME_MS);
     _externalFlag = false;
     digitalWrite(LED_BUILTIN, LOW);
   }
 
   if (_dumpFlag) {
     dumpFile();
-    delay(DEBOUNCE_MS);
+    delay(INIBITIONTIME_MS);
     _dumpFlag = false;
     digitalWrite(LED_BUILTIN, LOW);
   }
