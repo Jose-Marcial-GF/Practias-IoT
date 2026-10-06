@@ -1,0 +1,86 @@
+.
+├── arquitectura.txt
+├── compile_commands.json
+├── include
+│   └── README
+├── lib
+│   ├── Arduino_Low_Power
+│   │   ├── examples
+│   │   │   ├── AdcWakeup
+│   │   │   │   └── AdcWakeup.ino
+│   │   │   ├── ExternalWakeup
+│   │   │   │   └── ExternalWakeup.ino
+│   │   │   ├── PrimoDeepSleep
+│   │   │   │   └── PrimoDeepSleep.ino
+│   │   │   ├── TianStandby
+│   │   │   │   └── TianStandby.ino
+│   │   │   └── TimedWakeup
+│   │   │       └── TimedWakeup.ino
+│   │   ├── keywords.txt
+│   │   ├── library.properties
+│   │   ├── LICENSE
+│   │   ├── README.md
+│   │   └── src
+│   │       ├── ArduinoLowPower.h
+│   │       ├── nrf52
+│   │       │   └── ArduinoLowPower.cpp
+│   │       └── samd
+│   │           └── ArduinoLowPower.cpp
+│   ├── Arduino_MKRMEM-master
+│   │   ├── examples
+│   │   │   ├── RawFlashAccess
+│   │   │   │   └── RawFlashAccess.ino
+│   │   │   ├── SPIFFSDirectories
+│   │   │   │   └── SPIFFSDirectories.ino
+│   │   │   ├── SPIFFSFormat
+│   │   │   │   └── SPIFFSFormat.ino
+│   │   │   └── SPIFFSUsage
+│   │   │       └── SPIFFSUsage.ino
+│   │   ├── keywords.txt
+│   │   ├── library.properties
+│   │   ├── LICENSE
+│   │   ├── README.md
+│   │   └── src
+│   │       ├── Arduino_MKRMEM.h
+│   │       ├── Arduino_SPIFFS.cpp
+│   │       ├── Arduino_SPIFFS_Directory.cpp
+│   │       ├── Arduino_SPIFFS_DirectoryEntry.cpp
+│   │       ├── Arduino_SPIFFS_DirectoryEntry.h
+│   │       ├── Arduino_SPIFFS_Directory.h
+│   │       ├── Arduino_SPIFFS_File.cpp
+│   │       ├── Arduino_SPIFFS_File.h
+│   │       ├── Arduino_SPIFFS.h
+│   │       ├── Arduino_W25Q16DV.cpp
+│   │       ├── Arduino_W25Q16DV.h
+│   │       ├── spiffs_cache.c
+│   │       ├── spiffs_check.c
+│   │       ├── spiffs_config.h
+│   │       ├── spiffs_gc.c
+│   │       ├── spiffs.h
+│   │       ├── spiffs_hydrogen.c
+│   │       ├── spiffs_nucleus.c
+│   │       └── spiffs_nucleus.h
+│   ├── README
+│   └── RTCZero
+│       ├── examples
+│       │   ├── Epoch
+│       │   │   └── Epoch.ino
+│       │   ├── SimpleRTC
+│       │   │   └── SimpleRTC.ino
+│       │   ├── SimpleRTCAlarm
+│       │   │   └── SimpleRTCAlarm.ino
+│       │   └── SleepRTCAlarm
+│       │       └── SleepRTCAlarm.ino
+│       ├── keywords.txt
+│       ├── library.properties
+│       ├── README.adoc
+│       └── src
+│           ├── RTCZero.cpp
+│           └── RTCZero.h
+├── platformio.ini
+├── src
+│   └── main.cpp
+└── test
+    └── README
+
+29 directories, 55 files
