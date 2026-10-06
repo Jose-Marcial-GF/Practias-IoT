@@ -17,10 +17,8 @@
 #include <Arduino_MKRMEM.h>
 #include <ArduinoLowPower.h>
 
-// ArduinoLowPower usa internamente este objeto (extern RTCZero rtc)
 RTCZero rtc;
 
-// FLASH externa: bus SPI1 y pin CS propio del MKR 1310
 Arduino_W25Q16DV flash(SPI1, FLASH_CS);
 
 const char filename[] = "fechas.txt";
