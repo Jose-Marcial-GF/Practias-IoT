@@ -13,8 +13,8 @@ typedef enum { PHASE_STABILIZE = 0, PHASE_TUNING, PHASE_OPTIMAL, PHASE_FAILED } 
 
 typedef struct {
   phase_t phase;
-  int settleCycles;              // ciclos que se descartan tras cada cambio de carga
-  int settle;                    // ciclos pendientes de descartar
+  int cyclesToSet;              // ciclos que se descartan tras cada cambio de carga
+  int pendingCiclesToSet;                    // ciclos pendientes de descartar
   int trialTid;                  // hebra cuya subida se está probando (-1: ninguna)
   int prevLoad;                  // valor de esa hebra antes de la prueba
   int nextTid;                   // siguiente candidato (turno rotatorio)

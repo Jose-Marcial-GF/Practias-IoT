@@ -9,31 +9,27 @@
 #include "threads.h"
 #include "tuner.h"
 
-static BSEMAPHORE_DECL(top_sem, true);
 static THD_WORKING_AREA(waTop, 4096);
 
 //------------------------------------------------------------------------------
 // 1. CPU consumida por cada hebra durante el ciclo (por mil de los ticks)
 //------------------------------------------------------------------------------
-static void measureCpu()
+static void CPUstats()
 {
-  // Se incluye a top en el total: su consumo también es CPU ocupada
   uint32_t accumTicks = 0;
   for (int tid = 0; tid < NUM_THREADS; tid++) {
-    threadLoad_t * thdLoad = &sysLoad.threadLoad[tid];
-    systime_t ticks = chThdGetTicksX(thdLoad->thd);
-    thdLoad->ticksPerCycle = ticks - thdLoad->ticksTotal;
-    thdLoad->ticksTotal = ticks;
-    accumTicks += thdLoad->ticksPerCycle;
+    threadLoad_t& thdLoad = sysLoad.threadLoad[tid];
+    systime_t ticks = chThdGetTicksX(thdLoad.thd);
+    thdLoad.ticksPerCycle = ticks - thdLoad.ticksTotal;
+    thdLoad.ticksTotal = ticks;
+    accumTicks += thdLoad.ticksPerCycle;
   }
 
   for (int tid = 0; tid < NUM_THREADS; tid++) {
-    threadLoad_t * thdLoad = &sysLoad.threadLoad[tid];
-    // Por mil de los ticks del ciclo, con redondeo al más cercano
-    thdLoad->loadPerCycle_pm = accumTicks ?
-        (int)((1000UL * thdLoad->ticksPerCycle + accumTicks / 2) / accumTicks) : 0;
+    threadLoad_t& thdLoad = sysLoad.threadLoad[tid];
+    thdLoad.loadPerCycle_pm =thdLoad.ticksPerCycle;
   }
-  sysLoad.busy_pm = 1000 - sysLoad.threadLoad[IDLE_TID].loadPerCycle_pm;
+  sysLoad.busy_pm = accumTicks - sysLoad.threadLoad[IDLE_TID].loadPerCycle_pm;
 }
 
 //------------------------------------------------------------------------------
@@ -60,7 +56,7 @@ static bool checkLateJobs(uint32_t late[])
 static void printReport(uint32_t cycleNumber, const uint32_t late[],
                         bool periodsOk, bool systemOk)
 {
-  bool evaluated = (tuner.settle == 0);
+  bool evaluated = (tuner.pendingCiclesToSet == 0);
 
   rprintf("\n== Ciclo %lu | fase: %s%s\n",
           (unsigned long)cycleNumber, phase_name[tuner.phase],
@@ -96,7 +92,7 @@ static void topCycle()
   static uint32_t cycleNumber = 0;
   cycleNumber++;
 
-  measureCpu();
+  CPUstats();
 
   uint32_t late[NUM_THREADS] = { 0, 0, 0, 0, 0 };
   bool periodsOk = checkLateJobs(late);
@@ -106,6 +102,8 @@ static void topCycle()
 
   tunerUpdate(appVerdict(systemOk));
 
+  changeLoad(cycleNumber);
+  
   reportFlush();    // el informe se envía de una sola vez
 }
 
@@ -113,28 +111,19 @@ static THD_FUNCTION(top, arg)
 {
   (void)arg;
 
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);
-
   systime_t lastTime_i = 0;
   systime_t period_i = TIME_MS2I(CYCLE_MS);
 
-  // Reset top_sem as "taken"
-  chBSemReset(&top_sem, true);
-
   while (!chThdShouldTerminateX()) {
 
-    // Esperamos hasta el comienzo del siguiente ciclo
     systime_t deadline_i = lastTime_i + period_i;
     systime_t now_i = chVTGetSystemTimeX();
     if (deadline_i > now_i) {
-      chBSemWaitTimeout(&top_sem, sysinterval_t(deadline_i - now_i));
+      chThdSleepUntil(deadline_i);
     }
     lastTime_i = chVTGetSystemTimeX();
 
-    digitalWrite(LED_BUILTIN, HIGH);   // LED encendido mientras top trabaja
     topCycle();
-    digitalWrite(LED_BUILTIN, LOW);
   }
 }
 

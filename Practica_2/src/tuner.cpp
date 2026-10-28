@@ -11,9 +11,9 @@ const char * phase_name[] = { "STABILIZE", "TUNING", "OPTIMAL", "FAILED" };
 
 void tunerInit(int settleCycles)
 {
-  tuner.phase = PHASE_STABILIZE;
-  tuner.settleCycles = settleCycles;
-  tuner.settle = settleCycles;
+  tuner.phase = PHASE_STABILIZE; 
+  tuner.cyclesToSet = settleCycles;
+  tuner.pendingCiclesToSet = settleCycles;
   tuner.trialTid = -1;
   tuner.prevLoad = 0;
   tuner.nextTid = FIRST_WORKER;
@@ -43,14 +43,14 @@ static void startNextTrial()
     threadLoad[tid] = newLoad;
     tuner.trialTid = tid;
     tuner.nextTid = FIRST_WORKER + ((tid - FIRST_WORKER + 1) % NUM_WORKERS);
-    tuner.settle = tuner.settleCycles;
+    tuner.pendingCiclesToSet = tuner.cyclesToSet;
     return;
   }
 
   // Ninguna hebra puede crecer más: configuración óptima
   tuner.phase = PHASE_OPTIMAL;
   tuner.trialTid = -1;
-  tuner.settle = tuner.settleCycles;   // se vuelve a verificar la configuración final
+  tuner.pendingCiclesToSet = tuner.cyclesToSet;
   rprintf("  -> CONVERGENCIA: ninguna hebra puede aumentar mas su carga\n");
 }
 
@@ -80,15 +80,14 @@ static void tunerReduce()
           thread_name[worst], (int)threadLoad[worst], newLoad);
 
   threadLoad[worst] = newLoad;
-  tuner.settle = tuner.settleCycles;
+  tuner.pendingCiclesToSet = tuner.cyclesToSet;
 }
 
 void tunerUpdate(bool systemOk)
 {
-  // Tras cambiar la carga, se descartan unos ciclos: las hebras tardan hasta
-  // un periodo en leer la nueva intensidad
-  if (tuner.settle > 0) {
-    tuner.settle--;
+  // Tras cambiar la carga, se descartan unos ciclos
+  if (tuner.pendingCiclesToSet > 0) {
+    tuner.pendingCiclesToSet--;
     return;
   }
 
@@ -112,16 +111,11 @@ void tunerUpdate(bool systemOk)
         if (systemOk) {
           rprintf("  -> Prueba aceptada\n");
         } else {
-          // Prueba rechazada: se vuelve al valor anterior
-          rprintf("  -> Prueba rechazada: %s vuelve a load %d\n",
-                  thread_name[t], tuner.prevLoad);
+          rprintf("  -> Prueba rechazada: %s vuelve a load %d\n",thread_name[t], tuner.prevLoad);
           threadLoad[t] = tuner.prevLoad;
         }
-        // Búsqueda binaria: el paso se divide entre 2 en cada prueba. La hebra
-        // termina cuando el paso es menor que MIN_STEP o llega a su máximo
         tuner.step[t] /= 2;
         if (tuner.step[t] < MIN_STEP || threadLoad[t] >= threadLoadMax[t]) tuner.done[t] = true;
-        tuner.trialTid = -1;
       }
       startNextTrial();
       break;

@@ -57,12 +57,12 @@ typedef struct {
   thread_t * thd;
   sysinterval_t ticksTotal;
   sysinterval_t ticksPerCycle;
-  int loadPerCycle_pm;          // por mil de la CPU (1000 = 100,0 %)
+  int loadPerCycle_pm;
 } threadLoad_t;
 
 typedef struct {
   threadLoad_t threadLoad[NUM_THREADS];
-  int busy_pm;                  // 1000 - idle (por mil)
+  int busy_pm;
 } systemLoad_t;
 
 extern systemLoad_t sysLoad;
@@ -70,7 +70,6 @@ extern systemLoad_t sysLoad;
 //------------------------------------------------------------------------------
 // Arranque
 //------------------------------------------------------------------------------
-void startSerial();   // Parpadeo del LED, puerto USB y espera de una tecla
 void configCheck();   // Comprueba la configuración de ChibiOS (si no es válida, se detiene)
 
 #endif  // CONFIG_H

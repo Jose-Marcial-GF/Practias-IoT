@@ -13,4 +13,4 @@ void idleStart()
   sysLoad.threadLoad[IDLE_TID].thd = chThdGetSelfX();
 }
 
-void loop() { }
+void loop() {}

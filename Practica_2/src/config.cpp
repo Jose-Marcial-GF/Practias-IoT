@@ -22,39 +22,12 @@ volatile float sink;
 
 systemLoad_t sysLoad;
 
-//------------------------------------------------------------------------------
-// Parpadeo del LED, puerto USB y espera de una tecla
-//------------------------------------------------------------------------------
-void startSerial()
-{
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);
-
-  SerialUSB.begin(115200);
-  for (int i = 0; i < 6; i++) {
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(500);
-    digitalWrite(LED_BUILTIN, LOW);
-    delay(500);
-  }
-
-  int status = LOW;
-  while (!SerialUSB) {
-    status = status == LOW ? HIGH : LOW;
-    digitalWrite(LED_BUILTIN, status);
-    delay(250);
-  }
-
-  SerialUSB.println("Hit any key + ENTER to start ...");
-  while (!SerialUSB.available()) { delay(10); }
-}
 
 //------------------------------------------------------------------------------
-// Comprobación de la configuración de ChibiOS (se llama desde chSetup)
+// Comprobación de la configuración de ChibiOS
 //------------------------------------------------------------------------------
 void configCheck()
 {
-  // Round-robin con desplazamiento: exige CH_CFG_TIME_QUANTUM distinto de 0
   if (CH_CFG_TIME_QUANTUM == 0) {
     SerialUSB.println("You must set CH_CFG_TIME_QUANTUM to a non-zero value in");
     SerialUSB.println("src/samd/chconf_samd.h to enable round-robin scheduling.");
@@ -63,7 +36,6 @@ void configCheck()
   SerialUSB.print("CH_CFG_TIME_QUANTUM: ");
   SerialUSB.println(CH_CFG_TIME_QUANTUM);
 
-  // Sin la hebra idle del sistema, loop() hace de idle y la medida es válida
   if (CH_CFG_NO_IDLE_THREAD == FALSE) {
     SerialUSB.println("You must set CH_CFG_NO_IDLE_THREAD to TRUE");
     while (true) {}

@@ -14,7 +14,7 @@ static THD_WORKING_AREA(waWorker3, 2048);
 
 static THD_FUNCTION(worker, arg)
 {
-  int worker_ID = (int)(uintptr_t)arg;
+  int worker_ID = (int)arg;
   sysinterval_t period_i = TIME_MS2I(threadPeriod_ms[worker_ID]);
   sysinterval_t tolerance_i = TIME_MS2I(LATE_TOLERANCE_MS);
   systime_t deadline_i = chVTGetSystemTimeX();
@@ -29,20 +29,15 @@ static THD_FUNCTION(worker, arg)
 
     deadline_i += period_i;
 
-    systime_t endTime_i = chVTGetSystemTimeX();
+    systime_t endTime_i = chVTGetSystemTimeX(); 
     threadCycle_ms[worker_ID] = TIME_I2MS(endTime_i - beginTime_i);
 
     if (deadline_i > endTime_i) {
       chThdSleepUntil(deadline_i);
     }
     else if ((endTime_i - deadline_i) > tolerance_i) {
-      // No hemos terminado a tiempo: no se respeta el periodo
       threadLateJobs[worker_ID] = threadLateJobs[worker_ID] + 1;
-
-      // Se olvida el retraso acumulado y se empieza un ritmo nuevo desde ahora.
-      // Si no, la hebra encadena vueltas sin dormir para recuperar el tiempo
-      // perdido: tras una sobrecarga puede tardar decenas de ciclos, y mientras
-      // tanto la CPU marca 100 % y el tuner rechaza todas las pruebas
+      // Se olvida el retraso acumulado para que no se quede en un loop infinito
       deadline_i = endTime_i;
     }
   }

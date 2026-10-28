@@ -12,6 +12,8 @@ void topStart();       // top.cpp:     hebra top (NORMALPRIO + 2)
 void workersStart();   // workers.cpp: tres hebras worker (NORMALPRIO + 1)
 void idleStart();      // idle.cpp:    loop() como hebra idle (IDLEPRIO)
 
+void changeLoad(int cycleNumber);
+
 // Funciones que define la aplicación (main.cpp o extra.cpp) y usan los módulos:
 
 // Trabajo de una vuelta de un worker. La llama workers.cpp con la intensidad
