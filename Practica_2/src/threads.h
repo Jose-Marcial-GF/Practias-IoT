@@ -14,6 +14,4 @@ void changeLoad(int cycleNumber);
 
 void appWork(int workerId, int load);
 
-bool appVerdict(bool systemOk);
-
 #endif

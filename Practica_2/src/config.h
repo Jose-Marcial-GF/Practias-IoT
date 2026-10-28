@@ -12,10 +12,7 @@
 #define FIRST_WORKER      1
 #define IDLE_TID          4
 
-#define MAX_CPU_PM        850
-#define LATE_TOLERANCE_MS 5
-#define SETTLE_CYCLES     1
-#define MIN_STEP          4
+#define REFERENCE_CPU        850
 #define REDUCE_DIV        8
 
 extern char thread_name[NUM_THREADS][15];

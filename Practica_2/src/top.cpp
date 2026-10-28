@@ -1,7 +1,7 @@
 #include "config.h"
 #include "report.h"
 #include "threads.h"
-#include "tuner.h"
+#include "control.h"
 
 static THD_WORKING_AREA(waTop, 4096);
 
@@ -38,13 +38,8 @@ static bool checkLateJobs(uint32_t late[])
 }
 
 static void printReport(uint32_t cycleNumber, const uint32_t late[],
-                        bool periodsOk, bool systemOk)
+                        bool periodsOk)
 {
-  bool evaluated = (tuner.pendingCiclesToSet == 0);
-
-  rprintf("\n== Ciclo %lu | fase: %s%s\n",
-          (unsigned long)cycleNumber, phase_name[tuner.phase],
-          evaluated ? "" : " (estabilizando: ciclo no evaluado)");
 
   for (int tid = 0; tid < NUM_THREADS; tid++) {
     int cpu = sysLoad.threadLoad[tid].loadPerCycle_pm;
@@ -62,10 +57,9 @@ static void printReport(uint32_t cycleNumber, const uint32_t late[],
     }
   }
 
-  rprintf("CPU ocupada: %d.%d%% (umbral %d.%d%%) | periodos: %s | %s\n",
-          P1(sysLoad.busy_pm), P1(MAX_CPU_PM),
-          periodsOk ? "OK" : "FALLO",
-          !evaluated ? "no se evalua" : (systemOk ? "SISTEMA OK" : "SISTEMA NO OK"));
+  rprintf("CPU ocupada: %d.%d%% (umbral %d.%d%%) | periodos: %s \n",
+          P1(sysLoad.busy_pm), P1(REFERENCE_CPU),
+          periodsOk ? "OK" : "FALLO");
 }
 
 static void topCycle()
@@ -76,12 +70,11 @@ static void topCycle()
   CPUstats();
 
   uint32_t late[NUM_THREADS] = { 0, 0, 0, 0, 0 };
-  bool periodsOk = checkLateJobs(late);
-  bool systemOk = (sysLoad.busy_pm <= MAX_CPU_PM) && periodsOk;
+  bool periodsOk = (sysLoad.busy_pm <= REFERENCE_CPU) && checkLateJobs(late);
 
-  printReport(cycleNumber, late, periodsOk, systemOk);
+  printReport(cycleNumber, late, periodsOk);
 
-  tunerUpdate(appVerdict(systemOk));
+  controlLoad();
 
   changeLoad(cycleNumber);
   
@@ -95,8 +88,8 @@ static THD_FUNCTION(top, arg)
   systime_t lastTime_i = 0;
   systime_t period_i = TIME_MS2I(CYCLE_MS);
 
-  while (!chThdShouldTerminateX()) {
-
+  while (true) {
+  
     systime_t deadline_i = lastTime_i + period_i;
     systime_t now_i = chVTGetSystemTimeX();
     if (deadline_i > now_i) {
