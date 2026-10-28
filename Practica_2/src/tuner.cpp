@@ -1,8 +1,3 @@
-//------------------------------------------------------------------------------
-// tuner.cpp - Controlador de carga
-//
-// STABILIZE -> TUNING -> OPTIMAL (o FAILED). Ver main.cpp para la descripción.
-//------------------------------------------------------------------------------
 #include "tuner.h"
 #include "report.h"
 
@@ -25,8 +20,6 @@ void tunerInit(int settleCycles)
   }
 }
 
-// Sube la intensidad de la siguiente hebra que pueda crecer. Si ninguna puede,
-// se alcanza el estado OPTIMAL.
 static void startNextTrial()
 {
   for (int n = 0; n < NUM_WORKERS; n++) {
@@ -47,14 +40,12 @@ static void startNextTrial()
     return;
   }
 
-  // Ninguna hebra puede crecer más: configuración óptima
   tuner.phase = PHASE_OPTIMAL;
   tuner.trialTid = -1;
   tuner.pendingCiclesToSet = tuner.cyclesToSet;
   rprintf("  -> CONVERGENCIA: ninguna hebra puede aumentar mas su carga\n");
 }
 
-// Sobrecarga en estado OPTIMAL: se reduce la hebra que más CPU consume
 static void tunerReduce()
 {
   int worst = -1;
@@ -85,7 +76,6 @@ static void tunerReduce()
 
 void tunerUpdate(bool systemOk)
 {
-  // Tras cambiar la carga, se descartan unos ciclos
   if (tuner.pendingCiclesToSet > 0) {
     tuner.pendingCiclesToSet--;
     return;

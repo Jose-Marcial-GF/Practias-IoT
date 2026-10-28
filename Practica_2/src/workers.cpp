@@ -1,10 +1,3 @@
-//------------------------------------------------------------------------------
-// workers.cpp - Hebras de trabajo
-//
-// Tres hebras idénticas que se ejecutan periódicamente. En cada vuelta hacen
-// el trabajo que define la aplicación (appWork) con la intensidad que les asigna
-// top, y duermen hasta el comienzo del siguiente periodo.
-//------------------------------------------------------------------------------
 #include "config.h"
 #include "threads.h"
 
@@ -25,7 +18,7 @@ static THD_FUNCTION(worker, arg)
     threadEffectivePeriod_ms[worker_ID] = TIME_I2MS(beginTime_i - lastBeginTime_i);
     lastBeginTime_i = beginTime_i;
 
-    appWork(worker_ID, threadLoad[worker_ID]);    // intensidad vigente (la fija top)
+    appWork(worker_ID, threadLoad[worker_ID]);
 
     deadline_i += period_i;
 
@@ -37,7 +30,6 @@ static THD_FUNCTION(worker, arg)
     }
     else if ((endTime_i - deadline_i) > tolerance_i) {
       threadLateJobs[worker_ID] = threadLateJobs[worker_ID] + 1;
-      // Se olvida el retraso acumulado para que no se quede en un loop infinito
       deadline_i = endTime_i;
     }
   }

@@ -1,3 +1,25 @@
+/* ----------------------------------------------------------------------------
+ *  Práctica 1.B - Arduino MKR 1310 + ChibiOS
+ *
+ *  1. La hebra top (máxima prioridad) mide cada CYCLE_MS la carga de CPU de
+ *     cada hebra a partir de los ticks consumidos.
+ *  2. Cada hebra worker tiene un rango de intensidad [min, max] que top ajusta de
+ *     forma cíclica, subiendo la carga mientras se cumpla que:
+ *     a) los workers respetan su periodo, y
+ *     b) la CPU no supera el 85 % (>= 15 % en la hebra idle/loop).
+ *     Si no se cumple, se reduce la intensidad y se reevalúa.
+ *  3. EXTRAS:
+ *     - Carga aleatoria: cada RANDOM_WORK_PERIOD ciclos, un worker eleva su carga
+ *       hasta un RANDOM_LOAD_PCT_MAX % para comprobar que el margen de CPU
+ *       absorbe los picos. Solo hay sobrecarga tras OVERLOAD_CYCLES ciclos malos
+ *       seguidos (histéresis).
+ *     - Interrupción externa en DOUBLE_PIN (PULL_UP, flanco de bajada): alterna
+ *       los workers entre float y double y repite el ajuste de carga.
+ *
+ * ----------------------------------------------------------------------------
+ */
+
+
 #include <math.h>
 #include "config.h"
 #include "report.h"

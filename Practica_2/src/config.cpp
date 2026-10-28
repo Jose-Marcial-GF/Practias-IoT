@@ -1,6 +1,3 @@
-//------------------------------------------------------------------------------
-// config.cpp - Definición de los datos compartidos y comprobaciones de arranque
-//------------------------------------------------------------------------------
 #include "config.h"
 
 char thread_name[NUM_THREADS][15] = { "top",
@@ -23,9 +20,6 @@ volatile float sink;
 systemLoad_t sysLoad;
 
 
-//------------------------------------------------------------------------------
-// Comprobación de la configuración de ChibiOS
-//------------------------------------------------------------------------------
 void configCheck()
 {
   if (CH_CFG_TIME_QUANTUM == 0) {

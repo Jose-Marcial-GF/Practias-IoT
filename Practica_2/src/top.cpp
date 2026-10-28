@@ -1,9 +1,3 @@
-//------------------------------------------------------------------------------
-// top.cpp - Hebra top
-//
-// Hebra de alta prioridad que se ejecuta una vez por ciclo (CYCLE_MS):
-// mide la CPU de cada hebra, informa y deja que el tuner ajuste la carga.
-//------------------------------------------------------------------------------
 #include "config.h"
 #include "report.h"
 #include "threads.h"
@@ -11,9 +5,6 @@
 
 static THD_WORKING_AREA(waTop, 4096);
 
-//------------------------------------------------------------------------------
-// 1. CPU consumida por cada hebra durante el ciclo (por mil de los ticks)
-//------------------------------------------------------------------------------
 static void CPUstats()
 {
   uint32_t accumTicks = 0;
@@ -32,10 +23,6 @@ static void CPUstats()
   sysLoad.busy_pm = accumTicks - sysLoad.threadLoad[IDLE_TID].loadPerCycle_pm;
 }
 
-//------------------------------------------------------------------------------
-// 2. Vueltas con retraso de cada worker en este ciclo (late[tid]).
-//    Devuelve false si algún worker se ha retrasado
-//------------------------------------------------------------------------------
 static bool checkLateJobs(uint32_t late[])
 {
   static uint32_t lastLateJobs[NUM_THREADS];
@@ -50,9 +37,6 @@ static bool checkLateJobs(uint32_t late[])
   return periodsOk;
 }
 
-//------------------------------------------------------------------------------
-// 3. Informe del ciclo (se compone en un buffer; se envía en topCycle)
-//------------------------------------------------------------------------------
 static void printReport(uint32_t cycleNumber, const uint32_t late[],
                         bool periodsOk, bool systemOk)
 {
@@ -84,9 +68,6 @@ static void printReport(uint32_t cycleNumber, const uint32_t late[],
           !evaluated ? "no se evalua" : (systemOk ? "SISTEMA OK" : "SISTEMA NO OK"));
 }
 
-//------------------------------------------------------------------------------
-// Un ciclo completo: medir, informar y ajustar la carga
-//------------------------------------------------------------------------------
 static void topCycle()
 {
   static uint32_t cycleNumber = 0;
@@ -104,7 +85,7 @@ static void topCycle()
 
   changeLoad(cycleNumber);
   
-  reportFlush();    // el informe se envía de una sola vez
+  reportFlush();
 }
 
 static THD_FUNCTION(top, arg)
