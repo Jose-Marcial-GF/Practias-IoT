@@ -1,1 +1,1 @@
-void controlLoad();
+void controlLoad(bool periodOk);

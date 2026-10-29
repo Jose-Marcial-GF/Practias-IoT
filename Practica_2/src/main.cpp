@@ -26,14 +26,14 @@
 
 
 #define DOUBLE_PIN        4
-#define HISTERESIS_MS       500
+#define WORKER_PIN        5
+#define HISTERESIS_MS       1000
 
 #define RANDOM_WORK_PERIOD 10
 #define RANDOM_LOAD_PCT_MAX   100
 
 static volatile int peekWorker=0;
 static volatile int overload_pct=0;
-
 static int iterationsFor(int workerId, int load)
 {
   if (workerId != peekWorker) return load;
@@ -61,6 +61,19 @@ static void onDoublePin()
 
   useDouble = !useDouble;
 }
+
+
+static void toggleWorker()
+{
+  static uint32_t lastMs = 0;
+  uint32_t now = millis();
+  if (now - lastMs < HISTERESIS_MS) return;
+  lastMs = now;
+
+  extraworker = !extraworker;
+}
+
+
 
 void appWork(int workerId, int load)
 {
@@ -94,10 +107,12 @@ void setup()
 {
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(DOUBLE_PIN, INPUT_PULLUP);
+  pinMode(WORKER_PIN, INPUT_PULLUP);
   SerialUSB.begin(9600);
   while (!SerialUSB) {;}
 
   attachInterrupt(DOUBLE_PIN, onDoublePin, FALLING);
+  attachInterrupt(WORKER_PIN, toggleWorker, FALLING);
 
   chBegin(chSetup);
 }

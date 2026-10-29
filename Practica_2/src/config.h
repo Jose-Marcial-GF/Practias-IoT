@@ -7,10 +7,10 @@
 #define USE_DOUBLE        FALSE
 
 #define CYCLE_MS          1000
-#define NUM_THREADS       5
-#define NUM_WORKERS       3
+#define NUM_THREADS       6
+#define NUM_WORKERS       4
 #define FIRST_WORKER      1
-#define IDLE_TID          4
+#define IDLE_TID          5
 
 #define REFERENCE_CPU        850
 #define REDUCE_DIV        8
@@ -24,11 +24,13 @@ extern const int threadLoadMax[NUM_THREADS];
 
 extern volatile int threadLoad[NUM_THREADS];
 
-extern volatile uint32_t threadEffectivePeriod_ms[NUM_THREADS];
-extern volatile uint32_t threadCycle_ms[NUM_THREADS];
 extern volatile uint32_t threadLateJobs[NUM_THREADS];
 
 extern volatile float sink;
+
+extern volatile bool extraworker;
+
+extern volatile int badCycles;
 
 typedef struct {
   thread_t * thd;

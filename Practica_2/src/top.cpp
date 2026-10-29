@@ -1,7 +1,9 @@
+#include <stdio.h>
 #include "config.h"
-#include "report.h"
 #include "threads.h"
 #include "control.h"
+
+#define P1(pm)  (pm) / 10, (pm) % 10
 
 static THD_WORKING_AREA(waTop, 4096);
 
@@ -37,29 +39,27 @@ static bool checkLateJobs(uint32_t late[])
   return periodsOk;
 }
 
-static void printReport(uint32_t cycleNumber, const uint32_t late[],
-                        bool periodsOk)
-{
 
-  for (int tid = 0; tid < NUM_THREADS; tid++) {
-    int cpu = sysLoad.threadLoad[tid].loadPerCycle_pm;
-    if (tid >= FIRST_WORKER && tid < FIRST_WORKER + NUM_WORKERS) {
-      rprintf("%-9s load:%5d [%d-%d]  CPU:%3d.%d%%  exec:%3lu ms  "
-              "periodo:%4lu/%lu ms  tarde:%lu\n",
-              thread_name[tid], (int)threadLoad[tid],
-              threadLoadMin[tid], threadLoadMax[tid], P1(cpu),
-              (unsigned long)threadCycle_ms[tid],
-              (unsigned long)threadEffectivePeriod_ms[tid],
-              (unsigned long)threadPeriod_ms[tid],
-              (unsigned long)late[tid]);
-    } else {
-      rprintf("%-9s CPU:%3d.%d%%\n", thread_name[tid], P1(cpu));
+
+void reportStatus(int cycleNumber, uint32_t * late, bool periodOk){
+
+  char report[160];
+
+  sprintf(report, "cycle: %d\n", cycleNumber);
+  SerialUSB.println(report);
+
+  for (int8_t tid= FIRST_WORKER; tid < FIRST_WORKER+ NUM_WORKERS; tid++)
+  {
+    sprintf(report, "%-9s load:%5d  CPU:%3d.%d%% (%3lu ms)  late:%lu\n",
+      thread_name[tid], (int)threadLoad[tid],
+      P1(sysLoad.threadLoad[tid].loadPerCycle_pm),
+      (unsigned long)TIME_I2MS(sysLoad.threadLoad[tid].ticksPerCycle),
+      (unsigned long)late[tid]);
+      SerialUSB.print(report);
     }
-  }
-
-  rprintf("CPU ocupada: %d.%d%% (umbral %d.%d%%) | periodos: %s \n",
-          P1(sysLoad.busy_pm), P1(REFERENCE_CPU),
-          periodsOk ? "OK" : "FALLO");
+  sprintf(report, "CPU busy: %d.%d%%\nbadCycles: %d\nPeriod ok: %s\n", P1(sysLoad.busy_pm), badCycles,
+          periodOk ? "OK" : "FAIL");
+  SerialUSB.print(report);
 }
 
 static void topCycle()
@@ -69,16 +69,16 @@ static void topCycle()
 
   CPUstats();
 
-  uint32_t late[NUM_THREADS] = { 0, 0, 0, 0, 0 };
-  bool periodsOk = (sysLoad.busy_pm <= REFERENCE_CPU) && checkLateJobs(late);
+  uint32_t late[NUM_THREADS] = { 0, 0, 0, 0, 0, 0};
+  bool jobsOk = checkLateJobs(late);
+  bool periodOk = (sysLoad.busy_pm <= REFERENCE_CPU) && jobsOk;
 
-  printReport(cycleNumber, late, periodsOk);
+  reportStatus(cycleNumber, late, periodOk);
 
-  controlLoad();
+  controlLoad(periodOk);
 
   changeLoad(cycleNumber);
   
-  reportFlush();
 }
 
 static THD_FUNCTION(top, arg)
@@ -104,5 +104,5 @@ static THD_FUNCTION(top, arg)
 void topStart()
 {
   sysLoad.threadLoad[0].thd = chThdCreateStatic(waTop, sizeof(waTop),
-                                                NORMALPRIO + 2, top, NULL);
+                                                NORMALPRIO + 3, top, NULL);
 }

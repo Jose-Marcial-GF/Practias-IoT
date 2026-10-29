@@ -4,6 +4,7 @@
 
 
 #define KP 2
+#define OVERLOAD_CYCLES 4
 
 
 static void loadAdjusting(int error){
@@ -13,7 +14,15 @@ static void loadAdjusting(int error){
     }
 }
 
-void controlLoad(){
+void controlLoad(bool periodOk){
+
+    if (periodOk) {
+        badCycles = 0;
+    } else {
+        badCycles++;
+        if (badCycles < OVERLOAD_CYCLES) return;
+    }
+
     int error = REFERENCE_CPU - sysLoad.busy_pm;
     if ( abs(error) >= 10){
         loadAdjusting(error);
