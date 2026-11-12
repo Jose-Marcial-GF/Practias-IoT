@@ -24,8 +24,8 @@ static void printHelp()
       "  us <n> unit inc|cm|ms      unidad de la medida\r\n"
       "  us <n> delay <ms>          retardo mínimo entre medidas\r\n"
       "  us <n> status              estado del sensor\r\n"
-      "  oled text <línea> <texto>  escribe en la pantalla (línea 0 = la primera)\r\n"
-      "  oled clear                 borra la pantalla\r\n"
+      "  oled text <línea> <texto>  escribe en la pantalla (línea 0..7, pasa a manual)\r\n"
+      "  oled clear                 borra la pantalla (pasa a manual)\r\n"
       "  oled mode auto|manual      auto: la pantalla muestra el estado de los sensores\r\n");
 }
 
@@ -61,26 +61,26 @@ static void handleLine(char * line)
 
   if (word[0] == NULL) return;         // línea vacía
 
-  if (is(word[0], "help")) {
-    printHelp();
-    return;
-  }
+  if (is(word[0], "help")) { return printHelp();  }
 
-  if (is(word[0], "us") && word[1] == NULL) {
-    op = OP_US_LIST;
-  }
+  if (is(word[0], "us") && word[1] == NULL) { return generateHead(OP, SENSORES, NO_MESSAGE, US_LIST); }
+  sensor = atoi(word[1])
+  if ( sensor < 1| sensor >= 3 ){ return SENSOR_NO_EXISTE_ERROR; }
+  
+  if (is(word[2], "one-shot")) return word[3] == 0 ? generateHead(OP, SENSORES, NO_MESSAGE, US_ONESHOT) : UNEXPECTED_ARGUMENT_ERROR;
+  
+  if (is(word[2], "off")) return word[3] == 0 ? generateHead(OP, SENSORES, NO_MESSAGE, OP_US_PERIODIC_OFF); : UNEXPECTED_ARGUMENT_ERROR;
+
   else if (is(word[0], "us") && word[2] != NULL) {
-    body[0] = atoi(word[1]);           // número del sensor
+    sensor_number = atoi(word[1]);           // número del sensor
     len = 1;
-
-    if (is(word[2], "one-shot"))       op = OP_US_ONESHOT;
+    if (is(word[2], "one-shot"))       return checkOneshot()
     else if (is(word[2], "off"))       op = OP_US_PERIODIC_OFF;
     else if (is(word[2], "status"))    op = OP_US_STATUS;
     else if (word[3] != NULL && (is(word[2], "on") || is(word[2], "delay"))) {
       int value = atoi(word[3]);       // milisegundos, en 2 bytes
       op = is(word[2], "on") ? OP_US_PERIODIC_ON : OP_US_SET_DELAY;
-      body[1] = value & 0xFF;          // byte bajo primero
-      body[2] = value >> 8;
+      PROTO_PUT16(&body[1], value);    // byte bajo primero
       len = 3;
     }
     else if (word[3] != NULL && is(word[2], "unit")) {
