@@ -1,32 +1,47 @@
 #include <stdlib.h>
 #include <string.h>
 #include "config.h"
-#include "threads.h"
+#include <stdint.h>
+#include <stdio.h>
 
 static THD_WORKING_AREA(waConsole, 2048);
 
 // Escribe un texto en el monitor serie. Se usa el cerrojo porque la hebra
 // receptor también escribe en SerialUSB y los mensajes no deben mezclarse.
-static void say(const char * text)
+static uint8_t say(const char * text)
 {
   chMtxLock(&usbMutex);
   SerialUSB.print(text);
   chMtxUnlock(&usbMutex);
+  return 1;
 }
 
-static void printHelp()
+static uint8_t printHelp()
 {
-  say("Comandos:\r\n"
-      "  us                         lista los sensores\r\n"
-      "  us <n> one-shot            una medida del sensor n\r\n"
-      "  us <n> on <ms>             medida periódica cada <ms>\r\n"
-      "  us <n> off                 detiene la medida periódica\r\n"
-      "  us <n> unit inc|cm|ms      unidad de la medida\r\n"
-      "  us <n> delay <ms>          retardo mínimo entre medidas\r\n"
-      "  us <n> status              estado del sensor\r\n"
-      "  oled text <línea> <texto>  escribe en la pantalla (línea 0..7, pasa a manual)\r\n"
-      "  oled clear                 borra la pantalla (pasa a manual)\r\n"
-      "  oled mode auto|manual      auto: la pantalla muestra el estado de los sensores\r\n");
+  say("Comandos:\n"
+      "  help\n"
+      "  us                         lista los sensores\n"
+      "  us <n> one-shot            una medida del sensor n\n"
+      "  us <n> on <ms>             medida periódica cada <ms>\n"
+      "  us <n> off                 detiene la medida periódica\n"
+      "  us <n> unit inc|cm|ms      unidad de la medida\n"
+      "  us <n> delay <ms>          retardo mínimo entre medidas\n"
+      "  us <n> status              estado del sensor\n"
+      "  oled on                 borra la pantalla\n"
+      "  oled off                 borra la pantalla\n"
+      "  n = [1: first, 2: secound, both | 3: both ]"
+  );
+  return 0;
+}
+static uint8_t unExpectedArgumentError()
+{
+  say("Sobran argumentos");
+  return 1 ;
+}
+static uint8_t ArgumentError(const char* message)
+{
+  say(message);
+  return 1 ;
 }
 
 // true si la palabra existe y es igual al texto
@@ -35,84 +50,72 @@ static bool is(const char * word, const char * text)
   return word != NULL && strcmp(word, text) == 0;
 }
 
-// Envía un mensaje al sensor: código, longitud y cuerpo
-static void sendMessage(uint8_t op, uint8_t * body, uint8_t len)
-{
-  Serial1.write(op);
-  Serial1.write(len);
-  Serial1.write(body, len);
+static uint8_t sendUnit(uint8_t sensor, char* word){
+  if(is(word, "inc")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, OP_US_SET_UNIT_1);
+  if(is(word, "cm")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, OP_US_SET_UNIT_2);
+  if(is(word, "ms")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, OP_US_SET_UNIT_3);
+  return ArgumentError("unidad de medida no conocida");
 }
 
-// Convierte la línea escrita en un mensaje y lo envía. El supervisor solo
-// traduce el texto: los valores (sensor, periodo...) los valida el sensor.
-static void handleLine(char * line)
-{
-  uint8_t body[PROTO_MAX_BODY];
-  uint8_t len = 0;
-  uint8_t op = 0;                      // 0 = comando no reconocido
+static uint8_t sendDelay(uint8_t sensor, char* word){
+  uint16_t delay = (uint16_t)strtol(word, NULL, 10);
+  if (delay < MIN_DELAY_SFR || delay > MAX_DELAY_SFR) return ArgumentError("Valor no esperado");
+  sendMessage(OP, sensor << SENSOR_POSITION, MESSAGE, OP_US_SET_DELAY, (uint8_t *)&delay, 1);
+  return 0;
+}
 
-  // Tres palabras separadas por espacios y, de la cuarta, el resto de la línea
-  // (así el texto de "oled text" puede llevar espacios)
-  char * word[4];
+static uint8_t sendOn(uint8_t sensor, char* word){
+  long in_delay = strtol(word, NULL, 10);
+  if (in_delay < MIN_DELAY_SFR || in_delay > MAX_DELAY_SFR) return ArgumentError("Valor no esperado");
+  uint16_t delay = (uint16_t)in_delay;
+  sendHead(OP, sensor << SENSOR_POSITION, MESSAGE, OP_US_PERIODIC_ON);
+  writeMessage((uint8_t *)&delay, 2);
+  return 0;
+}
+
+
+static uint8_t handleLine(char * line)
+{
+  uint8_t sensor;
+
+  char * word[5];
   word[0] = strtok(line, " ");
   word[1] = strtok(NULL, " ");
   word[2] = strtok(NULL, " ");
-  word[3] = strtok(NULL, "\r\n");
-
-  if (word[0] == NULL) return;         // línea vacía
-
+  word[3] = strtok(NULL, " ");
+  word[4] = strtok(NULL, "\n");
+  
+  if (word[0] == NULL) return say("No se ha escrito nada");
   if (is(word[0], "help")) { return printHelp();  }
 
-  if (is(word[0], "us") && word[1] == NULL) { return generateHead(OP, SENSORES, NO_MESSAGE, US_LIST); }
-  sensor = atoi(word[1])
-  if ( sensor < 1| sensor >= 3 ){ return SENSOR_NO_EXISTE_ERROR; }
-  
-  if (is(word[2], "one-shot")) return word[3] == 0 ? generateHead(OP, SENSORES, NO_MESSAGE, US_ONESHOT) : UNEXPECTED_ARGUMENT_ERROR;
-  
-  if (is(word[2], "off")) return word[3] == 0 ? generateHead(OP, SENSORES, NO_MESSAGE, OP_US_PERIODIC_OFF); : UNEXPECTED_ARGUMENT_ERROR;
 
-  else if (is(word[0], "us") && word[2] != NULL) {
-    sensor_number = atoi(word[1]);           // número del sensor
-    len = 1;
-    if (is(word[2], "one-shot"))       return checkOneshot()
-    else if (is(word[2], "off"))       op = OP_US_PERIODIC_OFF;
-    else if (is(word[2], "status"))    op = OP_US_STATUS;
-    else if (word[3] != NULL && (is(word[2], "on") || is(word[2], "delay"))) {
-      int value = atoi(word[3]);       // milisegundos, en 2 bytes
-      op = is(word[2], "on") ? OP_US_PERIODIC_ON : OP_US_SET_DELAY;
-      PROTO_PUT16(&body[1], value);    // byte bajo primero
-      len = 3;
-    }
-    else if (word[3] != NULL && is(word[2], "unit")) {
-      op = OP_US_SET_UNIT;
-      len = 2;
-      if (is(word[3], "inc"))          body[1] = PROTO_UNIT_INC;
-      else if (is(word[3], "cm"))      body[1] = PROTO_UNIT_CM;
-      else if (is(word[3], "ms"))      body[1] = PROTO_UNIT_MS;
-      else                             op = 0;
-    }
+  if (is(word[0], "us")){
+    if (word[1] == NULL) return sendHead(OP, SENSORES, NO_MESSAGE, US_LIST);
+    if (is(word[1], "both")) {sensor = SENSORES;}
+    
+    else {
+      sensor = (uint8_t)strtol(word[1], NULL, 10);
+      if (sensor < 1 || sensor > 3) return say("El sensor mencionado no existe");
+      sensor << SENSOR_POSITION;
+      }
+    
+    if (is(word[2], "one-shot")) return word[3] == NULL ? sendHead(OP, sensor , NO_MESSAGE, US_ONESHOT) : unExpectedArgumentError();
+    
+    if (is(word[2], "off")) return word[3] == NULL ? sendHead(OP, sensor , NO_MESSAGE, OP_US_PERIODIC_OFF) : unExpectedArgumentError();
+    
+    if (is(word[2], "status")) return word[3] == NULL ? sendHead(OP, sensor , NO_MESSAGE, OP_STATUS) : unExpectedArgumentError();
+    
+    if (is(word[2], "unit")) return word[3] != NULL && word[4] == NULL ? sendUnit(sensor, word[3]) : unExpectedArgumentError();
+    
+    if (is(word[2], "delay")) return word[3] != NULL && word[4] == NULL ? sendDelay(sensor, word[3]) : unExpectedArgumentError();
+    
+    if (is(word[2], "on")) return word[3] != NULL && word[4] == NULL ? sendOn(sensor, word[3]) : unExpectedArgumentError();
+  } 
+  if (is(word[0], "oled")){
+    if (is(word[1], "off")) return word[2] == NULL ? sendHead(OP, PANTALLA, NO_MESSAGE, OP_OLED_OFF) : unExpectedArgumentError();
+    if (is(word[1], "on")) return word[2] == NULL ?  sendHead(OP, PANTALLA, NO_MESSAGE, OP_OLED_ON) : unExpectedArgumentError();
   }
-  else if (is(word[0], "oled") && is(word[1], "clear")) {
-    op = OP_OLED_CLEAR;
-  }
-  else if (is(word[0], "oled") && is(word[1], "mode") && word[2] != NULL) {
-    op = OP_OLED_MODE;
-    len = 1;
-    if (is(word[2], "auto"))           body[0] = PROTO_OLED_AUTO;
-    else if (is(word[2], "manual"))    body[0] = PROTO_OLED_MANUAL;
-    else                               op = 0;
-  }
-  else if (is(word[0], "oled") && is(word[1], "text") && word[2] != NULL && word[3] != NULL) {
-    int textLen = strlen(word[3]);
-    if (textLen > PROTO_OLED_TEXT_MAX) textLen = PROTO_OLED_TEXT_MAX;
-    op = OP_OLED_TEXT;
-    body[0] = atoi(word[2]);           // número de línea
-    memcpy(&body[1], word[3], textLen);
-    len = 1 + textLen;
-  }
-
-  if (op == 0) say("Comando no reconocido (help muestra los comandos)\r\n");
-  else         sendMessage(op, body, len);
+  return say("Comando no reconocido (help muestra los comandos)\n");
 }
 
 static THD_FUNCTION(consoleThread, arg)
@@ -120,7 +123,7 @@ static THD_FUNCTION(consoleThread, arg)
   char line[CONSOLE_LINE_MAX];
   int n = 0;                           // caracteres escritos en la línea
 
-  say("Supervisor listo. Escribe help para ver los comandos.\r\n");
+  say("Supervisor listo. Escribe help para ver los comandos.\n");
 
   while (true) {
     while (SerialUSB.available() > 0) {
@@ -129,7 +132,7 @@ static THD_FUNCTION(consoleThread, arg)
       if (c == '\r' || c == '\n') {              // Enter: se ejecuta la línea
         if (n > 0) {
           line[n] = '\0';
-          say("\r\n");
+          say("\n");
           handleLine(line);
           n = 0;
         }
@@ -146,8 +149,6 @@ static THD_FUNCTION(consoleThread, arg)
         say(text);
       }
     }
-
-    // La hebra duerme y deja la CPU a las demás
     chThdSleepMilliseconds(10);
   }
 }
