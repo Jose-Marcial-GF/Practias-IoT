@@ -51,24 +51,30 @@ static bool is(const char * word, const char * text)
 }
 
 static uint8_t sendUnit(uint8_t sensor, char* word){
-  if(is(word, "inc")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, PROTO_UNIT_INC);
-  if(is(word, "cm")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, PROTO_UNIT_CM);
-  if(is(word, "ms")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, PROTO_UNIT_MS);
+  if(is(word, "inc")) return sendHead(OP, sensor, NO_MESSAGE, PROTO_UNIT_INC);
+  if(is(word, "cm")) return sendHead(OP, sensor, NO_MESSAGE, PROTO_UNIT_CM);
+  if(is(word, "ms")) return sendHead(OP, sensor, NO_MESSAGE, PROTO_UNIT_MS);
   return ArgumentError("unidad de medida no conocida");
 }
 
+static bool readMs(const char* word, uint16_t* ms){
+  if (word[0] == '-') return false;                                // no se aceptan negativos
+  if (strtoul(word, NULL, 10) > MAX_DELAY_SFR) return false;
+  *ms = strtoul(word, NULL, 10);
+  return *ms >= MIN_DELAY_SFR;
+}
+
 static uint8_t sendDelay(uint8_t sensor, char* word){
-  uint16_t delay = (uint16_t)strtol(word, NULL, 10);
-  if (delay < MIN_DELAY_SFR || delay > MAX_DELAY_SFR) return ArgumentError("Valor no esperado");
-  sendMessage(OP, sensor << SENSOR_POSITION, MESSAGE, OP_US_SET_DELAY, (uint8_t *)&delay, 1);
+  uint16_t delay;
+  if (!readMs(word, &delay)) return ArgumentError("Valor no esperado");
+  sendMessage(OP, sensor, MESSAGE, OP_US_SET_DELAY, (uint8_t *)&delay, 2);
   return 0;
 }
 
 static uint8_t sendOn(uint8_t sensor, char* word){
-  long in_delay = strtol(word, NULL, 10);
-  if (in_delay < MIN_DELAY_SFR || in_delay > MAX_DELAY_SFR) return ArgumentError("Valor no esperado");
-  uint16_t delay = (uint16_t)in_delay;
-  sendHead(OP, sensor << SENSOR_POSITION, MESSAGE, OP_US_PERIODIC_ON);
+  uint16_t delay;
+  if (!readMs(word, &delay)) return ArgumentError("Valor no esperado");
+  sendHead(OP, sensor, MESSAGE, OP_US_PERIODIC_ON);
   writeMessage((uint8_t *)&delay, 2);
   return 0;
 }
@@ -94,9 +100,10 @@ static uint8_t handleLine(char * line)
     if (is(word[1], "both")) {sensor = SENSORES;}
     
     else {
+      if (word[1][0] == '-') return say("El sensor mencionado no existe");
       sensor = (uint8_t)strtol(word[1], NULL, 10);
       if (sensor < 1 || sensor > 3) return say("El sensor mencionado no existe");
-      sensor << SENSOR_POSITION;
+      sensor <<= SENSOR_POSITION;
       }
     
     if (is(word[2], "one-shot")) return word[3] == NULL ? sendHead(OP, sensor , NO_MESSAGE, US_ONESHOT) : unExpectedArgumentError();

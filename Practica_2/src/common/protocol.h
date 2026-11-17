@@ -52,8 +52,8 @@ static const uint8_t PROTO_ERROR_BUSY =              5;
 static const uint8_t ACK = 0x7E;
 static const uint8_t NO_ACK = 0x11;
 
-static const uint8_t MIN_DELAY_SFR = 70;
-static const uint8_t MAX_DELAY_SFR = 65535;
+static const uint16_t MIN_DELAY_SFR = 70;
+static const uint16_t MAX_DELAY_SFR = 60000;   // 1 minuto
 
 static uint8_t writeMessage(uint8_t * body, uint8_t len)
 {

@@ -97,7 +97,7 @@ static void dispatch(uint8_t sensor, uint8_t operation, uint16_t value)
 
     bool ok;
     switch (sensor) {
-        case 0:  ok = post_screen_command(operation, NULL, 0);        break;
+        case 0:  ok = post_screen_command(operation);        break;
         case 1:
         case 2:  ok = post(sensor_mb[sensor - 1], operation, value);  break;
         default: ok  = post(sensor_mb[0], operation, value);

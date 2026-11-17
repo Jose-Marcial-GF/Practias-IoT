@@ -1,9 +1,9 @@
 //------------------------------------------------------------------------------
 // screen.cpp - Hebra de la pantalla OLED (SSD1306 128x64 por I2C). Espera
 // mensajes en su mailbox y los pinta. Le escriben dos tipos de hebra:
-//   - reader: comandos oled del supervisor (text, clear, mode). La pantalla
-//     contesta con ACK o ERROR a través del writer, como los sensores.
-//   - sensor: el estado de su SRF02 cada vez que cambia o mide (modo auto).
+//   - reader: comandos oled del supervisor (on, off). La pantalla contesta
+//     con ACK o ERROR a través del writer, como los sensores.
+//   - sensor: el estado de su SRF02 cada vez que cambia o mide.
 // Mismo esquema que sensor.cpp y writer.cpp: memory pool + mailbox.
 //
 // La pantalla comparte el bus I2C con los SRF02: todo acceso a la pantalla se
@@ -17,18 +17,17 @@
 #include "messages.h"
 
 #define SCREEN_THD_PRIO  (NORMALPRIO + 1)
-#define SCREEN_ADDR_1    0x3C   // direcciones posibles del SSD1306 (7 bits)
-#define SCREEN_ADDR_2    0x3D
+#define SCREEN_ADDR      0x3D   // dirección del SSD1306 (7 bits; 0x7A en 8 bits)
 #define SCREEN_ROWS      8      // 64 px / 8 px por fila (fuente System5x7)
 #define SCREEN_COLS      21     // 128 px / 6 px por carácter
 
-// Filas del modo auto
+// Filas de la pantalla
 #define ROW_TITLE         0
 #define ROW_SENSOR(id)    (1 + 2 * ((id) - 1))   // 2 filas por sensor: 1-2 y 3-4
 #define ROW_ACTION_TITLE  6
 #define ROW_ACTION        7
 
-// Qué partes del modo auto hay que repintar (un bit por sensor y la acción)
+// Qué partes hay que repintar (un bit por sensor y la acción)
 #define DIRTY_SENSOR(id)  (1 << ((id) - 1))
 #define DIRTY_ACTION      0x80
 
@@ -49,7 +48,7 @@ static THD_WORKING_AREA(waScreen, 2048);   // snprintf usa bastante pila
 // Solo lo toca la hebra de la pantalla (screen_addr se fija antes de crearla)
 static SSD1306AsciiWire oled;
 static uint8_t screen_addr = 0;               // 0: no hay pantalla
-static uint8_t mode = PROTO_OLED_AUTO;
+static bool    screen_on = true;             // false tras "oled off"
 static sensor_state_t state[N_SENSORS];       // último estado de cada sensor
 static uint8_t last_sensor = 0;               // sensor de la última acción
 
@@ -58,7 +57,7 @@ static uint8_t last_sensor = 0;               // sensor de la última acción
 // propia unidad: si después se cambia la unidad, la medida sigue siendo la
 // que se tomó (p. ej. 67in hasta la siguiente medida en cm)
 typedef struct {
-    uint8_t  result;     // SCREEN_NO_VALUE, SCREEN_VALUE_OK o SCREEN_VALUE_ERROR
+    uint8_t  result;     // NO_MEASURE, MEASURE_OK o MEASURE_ERROR
     uint8_t  unit;       // unidad en la que se tomó
     uint16_t value;
 } last_measure_t;
@@ -71,23 +70,16 @@ static uint8_t dirty = 0;                     // DIRTY_*: pendiente de pintar
 // pierde (como en send2Writer)
 
 // reader -> screen. Devuelve false si no hay hueco
-bool post_screen_command(uint8_t op, const uint8_t *body, uint8_t len)
+bool post_screen_command(uint8_t op)
 {
     // Pedimos un objeto al memory pool
     screen_msg_t *p = (screen_msg_t *)chPoolAlloc(&screenMemoryPool);
-    if (!p) {
-        Serial.println("screen: chPoolAlloc failed");
-        return false;
-    }
+    if (!p) return false;
 
-    // Formamos el mensaje
     p->op = op;
-    p->len = len;
-    memcpy(p->body, body, len);
 
     // Lo enviamos sin bloquear (TIME_IMMEDIATE)
     if (chMBPostTimeout(&mb_screen, (msg_t)p, TIME_IMMEDIATE) != MSG_OK) {
-        Serial.println("screen: chMBPost failed");
         chPoolFree(&screenMemoryPool, p);   // mailbox lleno: devolvemos el hueco
         return false;
     }
@@ -102,7 +94,6 @@ void post_sensor_state(const sensor_state_t *s)
     if (!p) return;
 
     p->op = SCREEN_SENSOR_STATE;
-    p->len = 0;
     p->state = *s;
 
     if (chMBPostTimeout(&mb_screen, (msg_t)p, TIME_IMMEDIATE) != MSG_OK)
@@ -118,14 +109,11 @@ static bool probe(uint8_t address)
     return Wire.endTransmission() == 0;
 }
 
-// Busca la pantalla en sus dos direcciones posibles. Devuelve la que contesta
-// o 0 si no hay pantalla
+// Comprueba si la pantalla contesta. Devuelve su dirección o 0 si no hay pantalla
 uint8_t check_screen()
 {
     chMtxLock(&i2c_mtx);
-    if (probe(SCREEN_ADDR_1))      screen_addr = SCREEN_ADDR_1;
-    else if (probe(SCREEN_ADDR_2)) screen_addr = SCREEN_ADDR_2;
-    else                           screen_addr = 0;
+    screen_addr = probe(SCREEN_ADDR) ? SCREEN_ADDR : 0;
     chMtxUnlock(&i2c_mtx);
     return screen_addr;
 }
@@ -141,13 +129,16 @@ static void draw_row(uint8_t row, const char *text)
     chMtxUnlock(&i2c_mtx);
 }
 
-static void clear_screen()
+// Enciende o apaga el panel (comandos 0xAF / 0xAE del SSD1306)
+static void set_display(bool on)
 {
-    for (uint8_t row = 0; row < SCREEN_ROWS; row++) draw_row(row, "");
+    chMtxLock(&i2c_mtx);
+    oled.ssd1306WriteCmd(on ? SSD1306_DISPLAYON : SSD1306_DISPLAYOFF);
+    chMtxUnlock(&i2c_mtx);
 }
 
 
-/* ------------------------- Modo auto: estado de los sensores -------------- */
+/* ------------------------- Estado de los sensores ------------------------- */
 static const char *unit_name(uint8_t unit)
 {
     if (unit == PROTO_UNIT_INC) return "in";
@@ -190,7 +181,7 @@ static void draw_action()
         const sensor_state_t *s = &state[last_sensor - 1];
         int n = last_sensor;
         switch (s->event) {
-            case OP_US_ONESHOT:      snprintf(line, sizeof(line), "S%d one-shot", n); break;
+            case US_ONESHOT:         snprintf(line, sizeof(line), "S%d one-shot", n); break;
             case OP_US_PERIODIC_ON:
                 if (s->result == NO_MEASURE)
                     snprintf(line, sizeof(line), "S%d on cada %ums", n, s->period_ms);
@@ -198,15 +189,17 @@ static void draw_action()
                     snprintf(line, sizeof(line), "S%d medida periodica", n);
                 break;
             case OP_US_PERIODIC_OFF: snprintf(line, sizeof(line), "S%d periodico off", n); break;
-            case OP_US_SET_UNIT:     snprintf(line, sizeof(line), "S%d unidad %s", n, unit_name(s->unit)); break;
+            case PROTO_UNIT_INC:
+            case PROTO_UNIT_CM:
+            case PROTO_UNIT_MS:      snprintf(line, sizeof(line), "S%d unidad %s", n, unit_name(s->unit)); break;
             case OP_US_SET_DELAY:    snprintf(line, sizeof(line), "S%d retardo %ums", n, s->delay_ms); break;
-            case OP_US_STATUS:       snprintf(line, sizeof(line), "S%d status", n); break;
+            case OP_STATUS:          snprintf(line, sizeof(line), "S%d status", n); break;
         }
     }
     draw_row(ROW_ACTION, line);
 }
 
-// Pinta la pantalla entera del modo auto
+// Pinta la pantalla entera
 static void draw_all()
 {
     draw_row(ROW_TITLE, "DISPOSITIVO SENSOR");
@@ -220,7 +213,7 @@ static void draw_all()
 // Pinta solo lo que ha cambiado desde la última vez
 static void draw_dirty()
 {
-    if (screen_addr != 0 && mode == PROTO_OLED_AUTO) {
+    if (screen_addr != 0 && screen_on) {
         for (int id = 1; id <= N_SENSORS; id++)
             if (dirty & DIRTY_SENSOR(id)) draw_sensor(id);
         if (dirty & DIRTY_ACTION) draw_action();
@@ -248,62 +241,24 @@ static void update_sensor(const sensor_state_t *s)
 
 
 /* ------------------------- Comandos del supervisor ------------------------ */
-// Ejecuta un comando oled y deja la respuesta en el writer. La longitud del
-// cuerpo ya la ha comprobado el reader
-static void apply_screen_command(uint8_t op, const uint8_t *body, uint8_t len)
+// Ejecuta un comando oled y deja la respuesta en el writer. El reader ya ha
+// comprobado que op es OP_OLED_ON u OP_OLED_OFF
+static void apply_screen_command(uint8_t op)
 {
     if (screen_addr == 0) {
-        send_error(op, PROTO_ERR_I2C);
+        send_error(0, op, PROTO_ERR_I2C_PANTALLA);
         return;
     }
 
-    switch (op) {
-        case OP_OLED_TEXT: {
-            uint8_t row = body[0];
-            if (row >= SCREEN_ROWS) {
-                send_error(op, PROTO_ERR_BAD_PARAM);
-                break;
-            }
-            // Escribir texto pasa a modo manual: si no, el modo auto lo
-            // taparía en el siguiente repintado
-            if (mode == PROTO_OLED_AUTO) {
-                mode = PROTO_OLED_MANUAL;
-                clear_screen();
-            }
-            char text[PROTO_OLED_TEXT_MAX + 1];
-            memcpy(text, &body[1], len - 1);
-            text[len - 1] = '\0';
-            draw_row(row, text);   // lo que no cabe en la fila se pierde
-            send_ack(op);
-            break;
-        }
-
-        case OP_OLED_CLEAR:
-            mode = PROTO_OLED_MANUAL;
-            clear_screen();
-            send_ack(op);
-            break;
-
-        case OP_OLED_MODE:
-            if (body[0] == PROTO_OLED_AUTO) {
-                mode = PROTO_OLED_AUTO;
-                draw_all();
-            }
-            else if (body[0] == PROTO_OLED_MANUAL) {
-                mode = PROTO_OLED_MANUAL;
-                clear_screen();
-            }
-            else {
-                send_error(op, PROTO_ERR_BAD_PARAM);
-                break;
-            }
-            send_ack(op);
-            break;
-
-        default:
-            send_error(op, PROTO_ERR_UNKNOWN_OP);
-            break;
+    if (op == OP_OLED_ON) {
+        screen_on = true;
+        set_display(true);
+        draw_all();          // mientras estaba apagada se ha seguido guardando el estado
+    } else {
+        screen_on = false;
+        set_display(false);
     }
+    send_ack(0, op);
 }
 
 
@@ -339,7 +294,7 @@ static THD_FUNCTION(screen, arg)
 
         if (result == MSG_OK) {
             if (p->op == SCREEN_SENSOR_STATE) update_sensor(&p->state);
-            else                              apply_screen_command(p->op, p->body, p->len);
+            else                              apply_screen_command(p->op);
             chPoolFree(&screenMemoryPool, p);   // ¡siempre liberar!
         }
         else {

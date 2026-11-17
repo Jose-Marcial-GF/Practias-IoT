@@ -34,7 +34,7 @@ void chSetup(){
     if (screen_addr != 0) {
         Serial.print(" (0x"); Serial.print(screen_addr, HEX); Serial.println("): OK");
     } else {
-        Serial.println(" (0x3C/0x3D): NO RESPONDE");
+        Serial.println(": NO RESPONDE");
     }
 
     // El writer primero: las demás hebras le mandan sus respuestas

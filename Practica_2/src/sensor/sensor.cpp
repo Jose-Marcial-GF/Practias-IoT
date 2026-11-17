@@ -21,9 +21,6 @@
 #define SRF02_RANGING_DELAY       70
 
 
-commands_t commandPool[N_SLOTS];
-MEMORYPOOL_DECL(commandMemoryPool, sizeof(commands_t), PORT_NATURAL_ALIGN, NULL);
-
 msg_t slots_S1[N_SLOTS], slots_S2[N_SLOTS];
 MAILBOX_DECL(mb_s1, &slots_S1, N_SLOTS);
 MAILBOX_DECL(mb_s2, &slots_S2, N_SLOTS);
@@ -74,20 +71,19 @@ bool readRegister(byte address, byte the_register, byte *value)
     return ok;
 }
 
-//verificar que esto funciona
-bool _readMeasure(byte address, uint16_t *value)
+// Lee la medida: registros 2 y 3 seguidos (el SRF02 avanza solo de registro),
+// byte alto primero. Devuelve false si el sensor no contesta
+static bool _readMeasure(byte address, uint16_t *value)
 {
-
     Wire.beginTransmission(address);
     Wire.write(RANGE_HIGH_BYTE);
     if (Wire.endTransmission() != 0) return false;
 
     if (Wire.requestFrom(address, byte(2)) != 2) return false;
-    *value = Wire.read() << 8;
-    *value = Wire.read();
+    uint8_t hi = Wire.read();
+    uint8_t lo = Wire.read();
+    *value = (hi << 8) | lo;
     return true;
-
-    return ok;
 }
 
 bool readMeasure(byte address, uint16_t *value)
@@ -97,7 +93,7 @@ bool readMeasure(byte address, uint16_t *value)
     chMtxUnlock(&i2c_mtx);
     return ok;
 }
-bool writeCommand(byte address, byte the_register, byte *value)
+bool writeCommand(byte address, byte command)
 {
     chMtxLock(&i2c_mtx);
     bool ok = _writeCommand(address, command);
@@ -139,6 +135,14 @@ bool measure(int id, uint8_t address, uint16_t *value)
     return readMeasure(address, value);
 }
 
+// Código de error I2C de cada sensor
+static uint8_t i2c_error(int id)
+{
+    return id == 1 ? PROTO_ERR_I2C_SENSOR1 : PROTO_ERR_I2C_SENSOR2;
+}
+
+// Cuenta lo que ha pasado en este sensor al supervisor y a la pantalla.
+// result: NO_MEASURE (solo cambio de estado), MEASURE_OK o MEASURE_ERROR
 static void publish(int id, uint8_t op, uint8_t result, uint16_t value,
                     bool periodic, sysinterval_t period_i)
 {
@@ -225,7 +229,7 @@ static THD_FUNCTION(sensor, arg)
     systime_t deadline_i = chVTGetSystemTimeX();
 
     // La pantalla empieza con la configuración inicial de este sensor
-    report_to_screen(id, 0, periodic, period_i, NO_MEASURE, 0);
+    publish(id, 0, NO_MEASURE, 0, periodic, period_i);
 
     while (true) {
         // El mailbox hace de despertador y de temporizador: se espera un
@@ -264,9 +268,6 @@ static THD_FUNCTION(sensor, arg)
 
 void startSensor()
 {
-    // Vinculamos el memory pool con el array de comandos
-    chPoolLoadArray(&commandMemoryPool, commandPool, N_SLOTS);
-
     chThdCreateStatic(waSensor1, sizeof(waSensor1), SENSOR_THD_PRIO, sensor, (void *)1);
     chThdCreateStatic(waSensor2, sizeof(waSensor2), SENSOR_THD_PRIO, sensor, (void *)2);
 }
