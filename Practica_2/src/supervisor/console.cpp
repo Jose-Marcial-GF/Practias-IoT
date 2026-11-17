@@ -51,9 +51,9 @@ static bool is(const char * word, const char * text)
 }
 
 static uint8_t sendUnit(uint8_t sensor, char* word){
-  if(is(word, "inc")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, OP_US_SET_UNIT_1);
-  if(is(word, "cm")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, OP_US_SET_UNIT_2);
-  if(is(word, "ms")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, OP_US_SET_UNIT_3);
+  if(is(word, "inc")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, PROTO_UNIT_INC);
+  if(is(word, "cm")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, PROTO_UNIT_CM);
+  if(is(word, "ms")) return sendHead(OP, sensor << SENSOR_POSITION, NO_MESSAGE, PROTO_UNIT_MS);
   return ArgumentError("unidad de medida no conocida");
 }
 

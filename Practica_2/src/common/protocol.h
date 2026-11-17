@@ -31,13 +31,14 @@ static const uint8_t OP_STATUS =          0x4;
 static const uint8_t OP_OLED_OFF =        0x8;
 static const uint8_t OP_OLED_ON =         0x9;
 
-static const uint8_t OP_US_SET_UNIT_1 =   0xC;
-static const uint8_t OP_US_SET_UNIT_2 =   0xD;
-static const uint8_t OP_US_SET_UNIT_3 =   0xE;
+static const uint8_t PROTO_UNIT_INC =   0xC;
+static const uint8_t PROTO_UNIT_CM =   0xD;
+static const uint8_t PROTO_UNIT_MS =   0xE;
 
 // Necesitan mensajes
 static const uint8_t OP_US_PERIODIC_ON =  0x3;
 static const uint8_t OP_US_SET_DELAY =    0x6;
+
 
 
 /* ----- Códigos de error controlados sensor que envía al supervisor---------------------------------------------------- */
@@ -45,6 +46,7 @@ static const uint8_t PROTO_ERR_I2C_SENSOR1 =         1;
 static const uint8_t PROTO_ERR_I2C_SENSOR2 =         2;
 static const uint8_t PROTO_ERR_I2C_SENSORES =        3;
 static const uint8_t PROTO_ERR_I2C_PANTALLA =        4;
+static const uint8_t PROTO_ERROR_BUSY =              5;
 
 //ACK (no creo que haga falta)
 static const uint8_t ACK = 0x7E;
@@ -59,8 +61,16 @@ static uint8_t writeMessage(uint8_t * body, uint8_t len)
   return 0;
 }
 
-static inline uint8_t sendHead(uint8_t command, uint8_t device,uint8_t contain_message, uint8_t operation){
-    uint8_t head = command | device | contain_message | operation;
+static inline uint8_t generateHead(uint8_t command, uint8_t device,
+                                   uint8_t contain_message, uint8_t operation)
+{
+    return command | device | contain_message | operation;
+}
+
+static inline uint8_t sendHead(uint8_t command, uint8_t device,
+                               uint8_t contain_message, uint8_t operation)
+{
+    uint8_t head = generateHead(command, device, contain_message, operation);
     return writeMessage(&head, HEAD_SIZE);
 }
 
@@ -102,7 +112,7 @@ static inline uint8_t generateError(uint8_t command,uint8_t device,uint8_t conta
 /* ----- Códigos de error controlados solo por el supervisor y no se lo envia al sensor---------------------------------------------------- */
 #define PROTO_ERR_UNKNOWN_OP  1         // código de operación desconocido
 #define PROTO_ERR_NO_EXIST_SENSOR   2         // el sensor no existe
-#define PROTO_ERR_BAD_PARAM   3         // parámetro inválido
+static const uint8_t PROTO_ERR_BAD_PARAM =   3;         // parámetro inválido
 #define PROTO_ERR_MALFORMED   5         // mensaje mal formado
 
 

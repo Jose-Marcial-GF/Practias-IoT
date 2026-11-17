@@ -13,6 +13,23 @@
 #define N_SENSORS 2
 #define N_SLOTS   8   // huecos de cada mailbox/memory pool
 
+
+
+
+
+static inline msg_t packCommand(uint8_t operation, uint16_t value)
+{
+    return ((msg_t)value << 8) | operation;
+}
+static inline uint8_t  cmdOperation(msg_t m) { return m & 0x0F; }
+static inline uint16_t cmdValue(msg_t m)     { return (m >> 8) & 0xFFFF; }
+
+
+
+
+
+
+
 // Comando: reader -> sensor
 typedef struct {
     uint8_t  op;       // código de operación (one-shot, on, off, unit, delay, status)
@@ -30,22 +47,57 @@ typedef struct __attribute__((aligned(PORT_NATURAL_ALIGN))) {
     uint8_t body[PROTO_MAX_BODY];
 } response_t;
 
+// Estado de un SRF02 para la pantalla: sensor -> screen. Lo manda cada hebra
+// sensor al arrancar, al aplicar un comando y al medir
+#define SCREEN_NO_VALUE     0   // result: no se ha medido
+#define SCREEN_VALUE_OK     1   // result: value es una medida válida
+#define SCREEN_VALUE_ERROR  2   // result: la medida falló (I2C)
+
+typedef struct {
+    uint8_t  sensor;      // 1 o 2, como en el protocolo
+    uint8_t  event;       // comando que lo provoca (OP_US_*), 0 al arrancar
+    uint8_t  unit;        // PROTO_UNIT_*
+    uint8_t  periodic;    // 1 si la medida periódica está activa
+    uint8_t  result;      // SCREEN_NO_VALUE, SCREEN_VALUE_OK o SCREEN_VALUE_ERROR
+    uint16_t delay_ms;    // retardo mínimo entre disparos
+    uint16_t period_ms;   // periodo de la medida periódica
+    uint16_t value;       // medida, si result es SCREEN_VALUE_OK
+} sensor_state_t;
+
+// Mensaje para la pantalla: reader -> screen (comandos oled del supervisor)
+// y sensor -> screen (SCREEN_SENSOR_STATE). aligned: igual que response_t
+#define SCREEN_SENSOR_STATE 0xF0   // código interno, no viaja por Serial1
+
+typedef struct __attribute__((aligned(PORT_NATURAL_ALIGN))) {
+    uint8_t op;                              // OP_OLED_* o SCREEN_SENSOR_STATE
+    uint8_t len;                             // OP_OLED_*: longitud del cuerpo
+    uint8_t body[1 + PROTO_OLED_TEXT_MAX];   // OP_OLED_*: cuerpo tal cual llega
+    sensor_state_t state;                    // SCREEN_SENSOR_STATE
+} screen_msg_t;
+
 // ----- sensor.cpp ------------------------------------------------------------
 extern const uint8_t sensor_addr[N_SENSORS];   // dirección I2C de cada sensor
 extern memory_pool_t commandMemoryPool;
 extern mailbox_t *sensor_mb[N_SENSORS];        // sensor 1 -> [0], sensor 2 -> [1]
+extern mutex_t i2c_mtx;                        // bus I2C: SRF02 y pantalla
 
 bool check_sensor(byte address);
 void startSensor();
+
+// ----- screen.cpp ------------------------------------------------------------
+uint8_t check_screen();   // dirección I2C de la pantalla, 0 si no responde
+bool post_screen_command(uint8_t op, const uint8_t *body, uint8_t len);
+void post_sensor_state(const sensor_state_t *state);
+void startScreen();
 
 // ----- reader.cpp ------------------------------------------------------------
 void startReader();
 
 // ----- writer.cpp ------------------------------------------------------------
-void post_to_writer(uint8_t op, const uint8_t *body, uint8_t len);
-void send_ack(uint8_t op);
-void send_error(uint8_t op, uint8_t error);
-void send_measure(uint8_t sensor, uint8_t unit, uint16_t value);
+void send2Writer(uint8_t operation, const uint8_t *body, uint8_t len);
+void send_ack(uint8_t sensor, uint8_t operation);
+void send_error(uint8_t sensor, uint8_t operation, uint8_t code);
+void send_measure(uint8_t sensor, uint8_t operation, uint8_t unit, uint16_t value);
 void startWriter();
 
 #endif

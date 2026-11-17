@@ -15,18 +15,12 @@
 #define RANGE_HIGH_BYTE    byte(2)
 #define RANGE_LOW_BYTE     byte(3)
 
-// Comandos de medida del SRF02
 #define REAL_RANGING_MODE_INCHES  byte(80)
 #define REAL_RANGING_MODE_CMS     byte(81)
 #define REAL_RANGING_MODE_USECS   byte(82)
-#define SRF02_RANGING_DELAY       70   // ms que tarda una medida
+#define SRF02_RANGING_DELAY       70
 
 
-/* ------------------------- Mailboxes de los sensores ---------------------- */
-/* ------------------------- pio run -e sensor -t upload --upload-port /dev/ttyACM1 ---------------------- */
-// Mismos pasos que en el ejemplo 2 de ChibiOS: array de objetos, memory pool
-// sobre ese array y un mailbox por sensor. El mailbox solo guarda punteros
-// (msg_t) a objetos del pool, por eso tiene tantos huecos como el pool.
 commands_t commandPool[N_SLOTS];
 MEMORYPOOL_DECL(commandMemoryPool, sizeof(commands_t), PORT_NATURAL_ALIGN, NULL);
 
@@ -36,7 +30,6 @@ MAILBOX_DECL(mb_s2, &slots_S2, N_SLOTS);
 
 mailbox_t *sensor_mb[N_SENSORS] = { &mb_s1, &mb_s2 };
 
-// Las dos hebras comparten el bus I2C
 MUTEX_DECL(i2c_mtx);
 
 static THD_WORKING_AREA(waSensor1, 2048);
@@ -45,15 +38,15 @@ static THD_WORKING_AREA(waSensor2, 2048);
 
 /* ------------------------- Configuración de cada sensor ------------------- */
 // Posición 0: sensor 1, posición 1: sensor 2
-const uint8_t sensor_addr[N_SENSORS]  = { 0xE0 >> 1, 0xE2 >> 1 };   // I2C, 7 bits
+const uint8_t sensor_addr[N_SENSORS]  = { 0xF2 >> 1, 0xE2 >> 1 };   // I2C, 7 bits
 uint8_t   sensor_unit[N_SENSORS]      = { PROTO_UNIT_CM, PROTO_UNIT_CM };
-uint16_t  sensor_delay_ms[N_SENSORS]  = { 0, 0 };   // retardo mínimo entre disparos
+uint16_t  sensor_delay_ms[N_SENSORS]  = { MIN_DELAY_SFR, MIN_DELAY_SFR };   // retardo mínimo entre disparos
 systime_t last_shot_i[N_SENSORS]      = { 0, 0 };
 
 
 /* ------------------------- Acceso al SRF02 por I2C ------------------------ */
 // Devuelve false si el sensor no contesta
-bool write_command(byte address, byte command)
+bool _writeCommand(byte address, byte command)
 {
     Wire.beginTransmission(address);
     Wire.write(COMMAND_REGISTER);
@@ -62,7 +55,7 @@ bool write_command(byte address, byte command)
 }
 
 // Devuelve false si el sensor no contesta
-bool read_register(byte address, byte the_register, byte *value)
+static bool _readRegister(byte address, byte the_register, byte *value)
 {
     Wire.beginTransmission(address);
     Wire.write(the_register);
@@ -73,13 +66,29 @@ bool read_register(byte address, byte the_register, byte *value)
     return true;
 }
 
+bool readRegister(byte address, byte the_register, byte *value)
+{
+    chMtxLock(&i2c_mtx);
+    bool ok = _readRegister(address, the_register, value);
+    chMtxUnlock(&i2c_mtx);
+    return ok;
+}
+
+bool writeCommand(byte address, byte the_register, byte *value)
+{
+    chMtxLock(&i2c_mtx);
+    bool ok = _readRegister(address, the_register, value);
+    chMtxUnlock(&i2c_mtx);
+    return ok;
+}
+
+
+
 // true si hay un SRF02 contestando en esa dirección
 bool check_sensor(byte address)
 {
     byte revision = 0;
-    chMtxLock(&i2c_mtx);
-    bool answers = read_register(address, SOFTWARE_REVISION, &revision);
-    chMtxUnlock(&i2c_mtx);
+    bool answers = readRegister(address, SOFTWARE_REVISION, &revision);
     return answers && revision != 0x00 && revision != 0xFF;
 }
 
@@ -92,8 +101,9 @@ byte unit_cmd(uint8_t unit)
 }
 
 // Mide y manda la medida al writer. Devuelve false si falla el I2C
-// (quien la llama decide qué error enviar al supervisor)
-bool measure_and_report(int id, uint8_t address)
+// (quien la llama decide qué error enviar al supervisor). En value deja la
+// medida, para la pantalla
+bool measure_and_report(int id, uint8_t address, uint16_t *value)
 {
     // Respetamos el retardo mínimo entre dos disparos de este sensor
     systime_t next_shot_i = last_shot_i[id - 1] + TIME_MS2I(sensor_delay_ms[id - 1]);
@@ -101,7 +111,7 @@ bool measure_and_report(int id, uint8_t address)
     last_shot_i[id - 1] = chVTGetSystemTimeX();
 
     chMtxLock(&i2c_mtx);
-    bool ok = write_command(address, unit_cmd(sensor_unit[id - 1]));
+    bool ok = writeCommand(address, unit_cmd(sensor_unit[id - 1]));
     chMtxUnlock(&i2c_mtx);
     if (!ok) return false;
 
@@ -110,20 +120,40 @@ bool measure_and_report(int id, uint8_t address)
 
     byte hi = 0, lo = 0;
     chMtxLock(&i2c_mtx);
-    ok = read_register(address, RANGE_HIGH_BYTE, &hi) &&
-         read_register(address, RANGE_LOW_BYTE, &lo);
+    ok = readRegister(address, RANGE_HIGH_BYTE, &hi) &&
+         readRegister(address, RANGE_LOW_BYTE, &lo);
     chMtxUnlock(&i2c_mtx);
     if (!ok) return false;
 
-    send_measure(id, sensor_unit[id - 1], (hi << 8) | lo);
+    *value = (hi << 8) | lo;
+    send_measure(id, sensor_unit[id - 1], *value);
     return true;
+}
+
+// Manda a la pantalla el estado de este sensor (event: comando que lo
+// provoca, 0 al arrancar). Se llama desde la propia hebra del sensor, así que
+// lee su configuración sin carreras
+void report_to_screen(int id, uint8_t event, bool periodic, sysinterval_t period_i,
+                      uint8_t result, uint16_t value)
+{
+    sensor_state_t s;
+    s.sensor    = id;
+    s.event     = event;
+    s.unit      = sensor_unit[id - 1];
+    s.periodic  = periodic ? 1 : 0;
+    s.result    = result;
+    s.delay_ms  = sensor_delay_ms[id - 1];
+    s.period_ms = TIME_I2MS(period_i);
+    s.value     = value;
+    post_sensor_state(&s);
 }
 
 
 /* ------------------------- Comandos del supervisor ------------------------ */
 // Ejecuta un comando y deja la respuesta en el writer. El one-shot solo se
-// valida aquí: la medida la hace la hebra justo después
-void apply_command(commands_t *command, bool *periodic, sysinterval_t *period, int id)
+// valida aquí: la medida la hace la hebra justo después.
+// Devuelve false si el comando se ha rechazado (ya se ha enviado el ERROR)
+bool apply_command(commands_t *command, bool *periodic, sysinterval_t *period, int id)
 {
     switch (command->op) {
         case OP_US_ONESHOT:
@@ -132,7 +162,7 @@ void apply_command(commands_t *command, bool *periodic, sysinterval_t *period, i
         case OP_US_PERIODIC_ON:
             if (command->arg == 0 || command->arg < sensor_delay_ms[id - 1]) {
                 send_error(command->op, PROTO_ERR_BAD_PARAM);
-                break;
+                return false;
             }
             *periodic = true;
             *period = TIME_MS2I(command->arg);
@@ -147,7 +177,7 @@ void apply_command(commands_t *command, bool *periodic, sysinterval_t *period, i
         case OP_US_SET_UNIT:
             if (command->arg > PROTO_UNIT_MS) {
                 send_error(command->op, PROTO_ERR_BAD_PARAM);
-                break;
+                return false;
             }
             sensor_unit[id - 1] = command->arg;
             send_ack(command->op);
@@ -164,17 +194,18 @@ void apply_command(commands_t *command, bool *periodic, sysinterval_t *period, i
             body[0] = id;
             body[1] = sensor_addr[id - 1];
             body[2] = sensor_unit[id - 1];
-            protoPut16(&body[3], sensor_delay_ms[id - 1]);
+            PROTO_PUT16(&body[3], sensor_delay_ms[id - 1]);
             body[5] = *periodic ? 1 : 0;
-            protoPut16(&body[6], TIME_I2MS(*period));
-            post_to_writer(OP_RSP_STATUS, body, sizeof(body));
+            PROTO_PUT16(&body[6], TIME_I2MS(*period));
+            send2Writer(OP_RSP_STATUS, body, sizeof(body));
             break;
         }
 
         default:
             send_error(command->op, PROTO_ERR_UNKNOWN_OP);
-            break;
+            return false;
     }
+    return true;
 }
 
 
@@ -186,6 +217,9 @@ static THD_FUNCTION(sensor, arg)
     bool periodic = false;
     sysinterval_t period_i = TIME_MS2I(DEFAULT_SENSOR_PERIOD);
     systime_t deadline_i = chVTGetSystemTimeX();
+
+    // La pantalla empieza con la configuración inicial de este sensor
+    report_to_screen(id, 0, periodic, period_i, SCREEN_NO_VALUE, 0);
 
     while (true) {
         // El mailbox hace de despertador y de temporizador: se espera un
@@ -202,19 +236,27 @@ static THD_FUNCTION(sensor, arg)
 
         if (result == MSG_OK) {
             // Ha llegado un comando
-            apply_command(command, &periodic, &period_i, id);
-            bool shoot = (command->op == OP_US_ONESHOT);
-            if (command->op == OP_US_PERIODIC_ON) deadline_i = chVTGetSystemTimeX();  // primer disparo ya
+            bool accepted = apply_command(command, &periodic, &period_i, id);
+            uint8_t op = command->op;
+            if (op == OP_US_PERIODIC_ON) deadline_i = chVTGetSystemTimeX();  // primer disparo ya
             chPoolFree(&commandMemoryPool, command);   // ¡siempre liberar!
 
-            if (shoot && !measure_and_report(id, address))
-                send_error(OP_US_ONESHOT, PROTO_ERR_I2C);
+            uint8_t shot = SCREEN_NO_VALUE;
+            uint16_t value = 0;
+            if (op == OP_US_ONESHOT) {
+                shot = measure_and_report(id, address, &value) ? SCREEN_VALUE_OK : SCREEN_VALUE_ERROR;
+                if (shot == SCREEN_VALUE_ERROR) send_error(OP_US_ONESHOT, PROTO_ERR_I2C);
+            }
+            if (accepted) report_to_screen(id, op, periodic, period_i, shot, value);
         }
         else {
             // MSG_TIMEOUT: toca el disparo periódico
-            if (!measure_and_report(id, address))
-                send_error(OP_US_PERIODIC_ON, PROTO_ERR_I2C);
+            uint16_t value = 0;
+            bool ok = measure_and_report(id, address, &value);
+            if (!ok) send_error(OP_US_PERIODIC_ON, PROTO_ERR_I2C);
             deadline_i += period_i;
+            report_to_screen(id, OP_US_PERIODIC_ON, periodic, period_i,
+                             ok ? SCREEN_VALUE_OK : SCREEN_VALUE_ERROR, value);
         }
     }
 }

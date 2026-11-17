@@ -9,134 +9,125 @@
 
 #define READER_THD_PRIO  (NORMALPRIO + 2)
 #define FRAME_TIMEOUT_MS 100   // espera máxima entre bytes de un mismo mensaje
-#define READER_POLL_MS   1     // cada cuánto se mira si han llegado bytes
+#define READER_POLL_MS   10     // cada cuánto se mira si han llegado bytes
 #define WAIT_FOREVER     0
 
 static THD_WORKING_AREA(waReader, 1024);
 
 // Espera un byte de Serial1 como mucho timeout_ms (WAIT_FOREVER: sin límite).
 // Devuelve false si no llega a tiempo
-static bool read_byte(uint8_t *b, uint32_t timeout_ms)
+static bool read_byte(uint8_t *bytes, uint32_t timeout_ms)
 {
     systime_t start_i = chVTGetSystemTimeX();
     while (Serial1.available() == 0) {
         if (timeout_ms != WAIT_FOREVER &&
             chVTTimeElapsedSinceX(start_i) > TIME_MS2I(timeout_ms))
             return false;
-        chThdSleepMilliseconds(READER_POLL_MS);   // cede la CPU mientras espera
+        chThdSleepMilliseconds(READER_POLL_MS); 
     }
-    *b = (uint8_t)Serial1.read();
+    *bytes = (uint8_t)Serial1.read();
     return true;
 }
 
-// Longitud del cuerpo que debe tener cada petición de sensor (ver protocol.h)
-static int expected_len(uint8_t op)
+static bool isUsOperation(uint8_t op)
 {
     switch (op) {
-        case OP_US_ONESHOT:      return 1;   // sensor
-        case OP_US_PERIODIC_ON:  return 3;   // sensor, periodo_ms(2)
-        case OP_US_PERIODIC_OFF: return 1;   // sensor
-        case OP_US_SET_UNIT:     return 2;   // sensor, unidad
-        case OP_US_SET_DELAY:    return 3;   // sensor, retardo_ms(2)
-        case OP_US_STATUS:       return 1;   // sensor
-        default:                 return -1;  // no es una petición de sensor
+        case US_ONESHOT:
+        case OP_US_PERIODIC_ON:
+        case OP_US_PERIODIC_OFF:
+        case OP_US_SET_DELAY:
+        case OP_STATUS:
+        case PROTO_UNIT_CM:
+        case PROTO_UNIT_CM:
+        case PROTO_UNIT_MS:
+            return true;
+        default:
+            return false;
     }
 }
 
-// true si op es uno de los códigos de petición de protocol.h
-static bool is_request(uint8_t op)
+static bool isOledOperation(uint8_t op)
 {
-    return (op >= OP_US_LIST && op <= OP_US_STATUS) ||
-           (op >= OP_OLED_TEXT && op <= OP_OLED_MODE);
+    return op == OP_OLED_ON || op == OP_OLED_OFF;
 }
 
-// "us": la lista no depende de ningún sensor, así que la contesta el reader
+static bool needsBody(uint8_t op)
+{
+    return op == OP_US_PERIODIC_ON || op == OP_US_SET_DELAY;
+}
+
+// true si op es uno de los códigos de petición de protocol.h
+static bool split_request(uint8_t head, uint8_t *sensor, bool *message, uint8_t *operation)
+{
+    if (head & RESP) return false;
+
+    *sensor    = (head & SENSORES) >> SENSOR_POSITION;
+    *message   = (head & MESSAGE) != 0;
+    *operation = head & 0x0F;
+
+    if (*message != needsBody(*operation)) return false;
+    if (*operation == US_LIST) return *sensor == 3;
+    if (*sensor == 0)          return isOledOperation(*operation);
+    return isUsOperation(*operation);
+}
+
+
 static void send_list()
 {
     uint8_t body[1 + 2 * N_SENSORS];
     body[0] = N_SENSORS;
     for (int i = 0; i < N_SENSORS; i++) {
-        body[1 + 2 * i] = i + 1;            // número de sensor
-        body[2 + 2 * i] = sensor_addr[i];   // dirección I2C
+        body[1 + 2 * i] = i + 1;
+        body[2 + 2 * i] = sensor_addr[i];
     }
-    post_to_writer(OP_RSP_LIST, body, sizeof(body));
+    send2Writer(generateHead(RESP, SENSORES, MESSAGE, US_LIST), body, sizeof(body));
 }
 
+
 // Decide qué hacer con un mensaje completo
-static void dispatch(uint8_t op, const uint8_t *body, uint8_t len)
+// Deja un comando en un mailbox. Devuelve false si está lleno
+static bool post(mailbox_t * mb, uint8_t operation, uint16_t value)
 {
-    if (op == OP_US_LIST) {
-        send_list();
-        return;
-    }
+    return chMBPostTimeout(mb, packCommand(operation, value), TIME_IMMEDIATE) == MSG_OK;
+}
 
-    if (expected_len(op) < 0) {
-        send_error(op, PROTO_ERR_UNKNOWN_OP);
-        return;
-    }
-    if (len != expected_len(op)) {
-        send_error(op, PROTO_ERR_MALFORMED);
-        return;
-    }
+static void dispatch(uint8_t sensor, uint8_t operation, uint16_t value)
+{
+    if (operation == US_LIST) { send_list(); return; }
 
-    uint8_t sensor = body[0];   // 1, 2, ... (no la dirección I2C)
-    if (sensor < 1 || sensor > N_SENSORS) {
-        send_error(op, PROTO_ERR_NO_SENSOR);
-        return;
+    bool ok;
+    switch (sensor) {
+        case 0:  ok = post_screen_command(operation, NULL, 0);        break;
+        case 1:
+        case 2:  ok = post(sensor_mb[sensor - 1], operation, value);  break;
+        default: ok  = post(sensor_mb[0], operation, value);
+                 ok &= post(sensor_mb[1], operation, value);          break;
     }
-
-    // Pedimos un objeto al memory pool de comandos
-    commands_t *p = (commands_t *)chPoolAlloc(&commandMemoryPool);
-    if (!p) {
-        Serial.println("reader: chPoolAlloc failed");
-        send_error(op, PROTO_ERR_BAD_PARAM);   // no hay código de "ocupado"
-        return;
-    }
-
-    // Formamos el mensaje
-    p->op = op;
-    p->sensor = sensor;
-    p->arg = 0;
-    if (op == OP_US_PERIODIC_ON || op == OP_US_SET_DELAY) p->arg = protoGet16(&body[1]);
-    if (op == OP_US_SET_UNIT)                             p->arg = body[1];
-
-    // Lo enviamos al mailbox del sensor: el 1 usa sensor_mb[0], el 2 sensor_mb[1]
-    msg_t s = chMBPostTimeout(sensor_mb[sensor - 1], (msg_t)p, TIME_IMMEDIATE);
-    if (s != MSG_OK) {
-        Serial.println("reader: chMBPost failed");
-        chPoolFree(&commandMemoryPool, p);   // mailbox lleno: devolvemos el hueco
-        send_error(op, PROTO_ERR_BAD_PARAM);
-    }
+    if (!ok) send_error(sensor, operation, PROTO_ERROR_BUSY);
 }
 
 static THD_FUNCTION(reader, arg)
 {
     (void)arg;
-    uint8_t op, len;
-    uint8_t body[PROTO_MAX_BODY];
+    uint8_t head, sensor, operation;
+    bool message;
 
     while (true) {
         // 1. Código: se espera sin límite a que el supervisor mande algo
-        read_byte(&op, WAIT_FOREVER);
+        read_byte(&head, WAIT_FOREVER);
 
-        // Un byte que no es código de petición (ruido al conectar el cable,
-        // restos de un mensaje cortado) se ignora: así se recupera la sincronía
-        if (!is_request(op)) continue;
+        if (!split_request(head, &sensor, &message, &operation)) continue;
 
-        // 2. Longitud
-        if (!read_byte(&len, FRAME_TIMEOUT_MS)) continue;   // mensaje cortado
-        if (len > PROTO_MAX_BODY) {
-            send_error(op, PROTO_ERR_MALFORMED);
-            continue;
+        uint16_t value = 0;
+        if (message) {
+            uint8_t body[2];
+            if (!read_byte(&body[0], FRAME_TIMEOUT_MS)) continue;
+            if (!read_byte(&body[1], FRAME_TIMEOUT_MS)) continue;
+            value = PROTO_GET16(body);
         }
 
-        // 3. Cuerpo
-        bool complete = true;
-        for (int i = 0; i < len && complete; i++)
-            complete = read_byte(&body[i], FRAME_TIMEOUT_MS);
-        if (!complete) continue;   // mensaje cortado: se descarta (protocol.h)
-
-        dispatch(op, body, len);
+        // 4. Al buzón de quien lo ejecuta
+        dispatch(sensor, operation, value);
     }
 }
 

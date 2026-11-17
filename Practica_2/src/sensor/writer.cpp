@@ -22,7 +22,7 @@ MAILBOX_DECL(mb_writer, &slots_W, N_SLOTS);
 static THD_WORKING_AREA(waWriter, 1024);
 
 // Deja una respuesta en el mailbox del writer. La puede llamar cualquier hebra
-void post_to_writer(uint8_t op, const uint8_t *body, uint8_t len)
+void send2Writer(uint8_t op, const uint8_t *body, uint8_t len)
 {
     // Pedimos un objeto al memory pool
     response_t *p = (response_t *)chPoolAlloc(&responseMemoryPool);
@@ -44,24 +44,25 @@ void post_to_writer(uint8_t op, const uint8_t *body, uint8_t len)
     }
 }
 
+
 // Atajos para las respuestas más comunes (formato en protocol.h)
-void send_ack(uint8_t op)
+void send_ack(uint8_t sensor, uint8_t operation)
 {
     uint8_t body[1] = { op };
-    post_to_writer(OP_RSP_ACK, body, 1);
+    send2Writer(OP_RSP_ACK, body, 1);
 }
 
-void send_error(uint8_t op, uint8_t error)
+void send_error(uint8_t sensor, uint8_t operation, uint8_t errorCode)
 {
     uint8_t body[2] = { op, error };
-    post_to_writer(OP_RSP_ERROR, body, 2);
+    send2Writer(OP_RSP_ERROR, body, 2);
 }
 
 void send_measure(uint8_t sensor, uint8_t unit, uint16_t value)
 {
     uint8_t body[4] = { sensor, unit, 0, 0 };
-    protoPut16(&body[2], value);
-    post_to_writer(OP_RSP_MEASURE, body, 4);
+    PROTO_PUT16(&body[2], value);
+    send2Writer(OP_RSP_MEASURE, body, 4);
 }
 
 static THD_FUNCTION(writer, arg)

@@ -29,12 +29,19 @@ void chSetup(){
         Serial.print(" (0x"); Serial.print(sensor_addr[i], HEX); Serial.print("): ");
         Serial.println(check_sensor(sensor_addr[i]) ? "OK" : "NO RESPONDE");
     }
-    //check_screen(screen);
+    uint8_t screen_addr = check_screen();
+    Serial.print("Pantalla");
+    if (screen_addr != 0) {
+        Serial.print(" (0x"); Serial.print(screen_addr, HEX); Serial.println("): OK");
+    } else {
+        Serial.println(" (0x3C/0x3D): NO RESPONDE");
+    }
 
     // El writer primero: las demás hebras le mandan sus respuestas
     startWriter();
+    // La pantalla antes que los sensores: al arrancar le mandan su estado
+    startScreen();
     startSensor();
-    //StartScreen();
     // El reader el último: cuando llegue un comando todo está ya en marcha
     startReader();
 }

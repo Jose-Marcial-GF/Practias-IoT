@@ -15,11 +15,14 @@
  *  Las dos hebras escriben en el monitor, por eso usan el cerrojo usbMutex.
  *
  *  Conexión de Serial1 con el sensor: TX con RX cruzados y GND común.
+ * 
+ * Author
+ * Juan Daniel López Melainine 
+ * José Marcial Galván Franco
  * ----------------------------------------------------------------------------
  */
 
 #include "config.h"
-#include "threads.h"
 
 void chSetup()
 {
@@ -34,7 +37,6 @@ void setup()
 
   Serial1.begin(PROTO_BAUD);
 
-  // chBegin() nunca retorna. loop() se invoca directamente desde chBegin()
   chBegin(chSetup);
 }
 

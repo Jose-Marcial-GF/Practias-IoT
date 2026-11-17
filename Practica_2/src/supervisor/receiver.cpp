@@ -1,5 +1,4 @@
 #include "config.h"
-#include "threads.h"
 
 static THD_WORKING_AREA(waReceiver, 2048);
 
