@@ -37,7 +37,7 @@ static bool isUsOperation(uint8_t op)
         case OP_US_PERIODIC_OFF:
         case OP_US_SET_DELAY:
         case OP_STATUS:
-        case PROTO_UNIT_CM:
+        case PROTO_UNIT_INC:
         case PROTO_UNIT_CM:
         case PROTO_UNIT_MS:
             return true;

@@ -30,13 +30,6 @@ static inline uint16_t cmdValue(msg_t m)     { return (m >> 8) & 0xFFFF; }
 
 
 
-// Comando: reader -> sensor
-typedef struct {
-    uint8_t  op;       // código de operación (one-shot, on, off, unit, delay, status)
-    uint8_t  sensor;   // 1 o 2, como en el protocolo
-    uint32_t arg;      // periodo, unidad, retardo...
-} commands_t;
-
 // Respuesta: sensor/reader -> writer, ya lista para enviar por Serial1.
 // aligned: el memory pool guarda un puntero dentro de cada objeto libre, así
 // que cada objeto debe empezar en una dirección múltiplo de 4. Sin esto la
@@ -49,9 +42,9 @@ typedef struct __attribute__((aligned(PORT_NATURAL_ALIGN))) {
 
 // Estado de un SRF02 para la pantalla: sensor -> screen. Lo manda cada hebra
 // sensor al arrancar, al aplicar un comando y al medir
-#define SCREEN_NO_VALUE     0   // result: no se ha medido
-#define SCREEN_VALUE_OK     1   // result: value es una medida válida
-#define SCREEN_VALUE_ERROR  2   // result: la medida falló (I2C)
+#define NO_MEASURE     0   // result: no se ha medido
+#define MEASURE_OK     1   // result: value es una medida válida
+#define MEASURE_ERROR  2   // result: la medida falló (I2C)
 
 typedef struct {
     uint8_t  sensor;      // 1 o 2, como en el protocolo
@@ -77,7 +70,6 @@ typedef struct __attribute__((aligned(PORT_NATURAL_ALIGN))) {
 
 // ----- sensor.cpp ------------------------------------------------------------
 extern const uint8_t sensor_addr[N_SENSORS];   // dirección I2C de cada sensor
-extern memory_pool_t commandMemoryPool;
 extern mailbox_t *sensor_mb[N_SENSORS];        // sensor 1 -> [0], sensor 2 -> [1]
 extern mutex_t i2c_mtx;                        // bus I2C: SRF02 y pantalla
 

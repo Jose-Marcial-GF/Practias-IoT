@@ -27,7 +27,7 @@ void chSetup(){
     for (int i = 0; i < N_SENSORS; i++) {
         Serial.print("Sensor "); Serial.print(i + 1);
         Serial.print(" (0x"); Serial.print(sensor_addr[i], HEX); Serial.print("): ");
-        Serial.println(check_sensor(sensor_addr[i]) ? "OK" : "NO RESPONDE");
+        Serial.println(checkSensor(sensor_addr[i]) ? "OK" : "NO RESPONDE");
     }
     uint8_t screen_addr = check_screen();
     Serial.print("Pantalla");

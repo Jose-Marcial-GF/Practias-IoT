@@ -169,9 +169,9 @@ static void draw_sensor(int id)
              id, sensor_addr[id - 1] << 1, unit_name(s->unit), s->delay_ms);
     draw_row(ROW_SENSOR(id), line);
 
-    if (m->result == SCREEN_VALUE_OK)
+    if (m->result == MEASURE_OK)
         snprintf(value, sizeof(value), "%u%s", m->value, unit_name(m->unit));
-    else if (m->result == SCREEN_VALUE_ERROR)
+    else if (m->result == MEASURE_ERROR)
         snprintf(value, sizeof(value), "err I2C");
     else
         snprintf(value, sizeof(value), "---");
@@ -192,7 +192,7 @@ static void draw_action()
         switch (s->event) {
             case OP_US_ONESHOT:      snprintf(line, sizeof(line), "S%d one-shot", n); break;
             case OP_US_PERIODIC_ON:
-                if (s->result == SCREEN_NO_VALUE)
+                if (s->result == NO_MEASURE)
                     snprintf(line, sizeof(line), "S%d on cada %ums", n, s->period_ms);
                 else
                     snprintf(line, sizeof(line), "S%d medida periodica", n);
@@ -233,7 +233,7 @@ static void update_sensor(const sensor_state_t *s)
 {
     if (s->sensor < 1 || s->sensor > N_SENSORS) return;
     state[s->sensor - 1] = *s;
-    if (s->result != SCREEN_NO_VALUE) {   // solo si el mensaje trae medida
+    if (s->result != NO_MEASURE) {   // solo si el mensaje trae medida
         last_measure_t *m = &measure[s->sensor - 1];
         m->result = s->result;
         m->unit   = s->unit;
@@ -316,7 +316,7 @@ static THD_FUNCTION(screen, arg)
     for (int i = 0; i < N_SENSORS; i++) {
         state[i].sensor = i + 1;
         state[i].unit = PROTO_UNIT_CM;
-        state[i].result = SCREEN_NO_VALUE;
+        state[i].result = NO_MEASURE;
     }
 
     if (screen_addr != 0) {
