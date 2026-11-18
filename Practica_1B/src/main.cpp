@@ -15,11 +15,14 @@
  *       seguidos (histéresis).
  *     - Interrupción externa en DOUBLE_PIN (PULL_UP, flanco de bajada): alterna
  *       los workers entre float y double y repite el ajuste de carga.
- *
+ * ----------------------------------------------------------------------------
+ * Autores:
+ * Juan Daniel López Melainine
+ * Jose Marcial Galván Franco  
  * ----------------------------------------------------------------------------
  */
 
-
+ 
 #include <math.h>
 #include "config.h"
 #include "threads.h"

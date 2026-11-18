@@ -14,8 +14,6 @@
 
 static THD_WORKING_AREA(waReader, 1024);
 
-// Espera un byte de Serial1 como mucho timeout_ms (WAIT_FOREVER: sin límite).
-// Devuelve false si no llega a tiempo
 static bool read_byte(uint8_t *bytes, uint32_t timeout_ms)
 {
     systime_t start_i = chVTGetSystemTimeX();
