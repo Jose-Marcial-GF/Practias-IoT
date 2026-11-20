@@ -46,35 +46,49 @@ static const char * unitName(uint8_t unit)
   return "us";
 }
 
-static const char * opName(uint8_t op)
+// Pareja código -> texto. El texto NULL marca el final de cada tabla
+typedef struct {
+  uint8_t code;
+  const char * text;
+} name_t;
+
+// Nombre del comando según el código de operación de la cabecera
+static const name_t opNames[] = {
+  { US_LIST,            TXT_LIST },
+  { US_ONESHOT,         WORD_ONESHOT },
+  { OP_US_PERIODIC_ON,  WORD_ON },
+  { OP_US_PERIODIC_OFF, WORD_OFF },
+  { OP_STATUS,          WORD_STATUS },
+  { OP_US_SET_DELAY,    WORD_DELAY },
+  { PROTO_UNIT_INC,     WORD_UNIT " " WORD_INC },
+  { PROTO_UNIT_CM,      WORD_UNIT " " WORD_CM },
+  { PROTO_UNIT_MS,      WORD_UNIT " " WORD_MS },
+  { OP_OLED_ON,         WORD_OLED " " WORD_ON },
+  { OP_OLED_OFF,        WORD_OLED " " WORD_OFF },
+  { 0, NULL }
+};
+
+// Mensaje según el código de error que envía el sensor
+static const name_t errorNames[] = {
+  { PROTO_ERR_I2C_SENSOR1,  TXT_ERR_I2C_SENSOR1 },
+  { PROTO_ERR_I2C_SENSOR2,  TXT_ERR_I2C_SENSOR2 },
+  { PROTO_ERR_I2C_SENSORES, TXT_ERR_I2C_SENSORES },
+  { PROTO_ERR_I2C_PANTALLA, TXT_ERR_I2C_PANTALLA },
+  { PROTO_ERROR_BUSY,       TXT_ERR_BUSY },
+  { 0, NULL }
+};
+
+// Texto que corresponde al código en la tabla, o notFound si no está
+static const char * nameOf(const name_t * table, uint8_t code, const char * notFound)
 {
-  switch (op) {
-    case US_LIST:            return "lista";
-    case US_ONESHOT:         return "one-shot";
-    case OP_US_PERIODIC_ON:  return "on";
-    case OP_US_PERIODIC_OFF: return "off";
-    case OP_STATUS:          return "status";
-    case OP_US_SET_DELAY:    return "delay";
-    case PROTO_UNIT_INC:     return "unit inc";
-    case PROTO_UNIT_CM:      return "unit cm";
-    case PROTO_UNIT_MS:      return "unit ms";
-    case OP_OLED_ON:         return "oled on";
-    case OP_OLED_OFF:        return "oled off";
-    default:                 return "?";
+  for (int i = 0; table[i].text != NULL; i++) {
+    if (table[i].code == code) return table[i].text;
   }
+  return notFound;
 }
 
-static const char * errorName(uint8_t code)
-{
-  switch (code) {
-    case PROTO_ERR_I2C_SENSOR1:  return "el sensor 1 no responde (I2C)";
-    case PROTO_ERR_I2C_SENSOR2:  return "el sensor 2 no responde (I2C)";
-    case PROTO_ERR_I2C_SENSORES: return "los sensores no responden (I2C)";
-    case PROTO_ERR_I2C_PANTALLA: return "la pantalla no responde (I2C)";
-    case PROTO_ERROR_BUSY:       return "el dispositivo está ocupado, repite el comando";
-    default:                     return "error desconocido";
-  }
-}
+static const char * opName(uint8_t op)      { return nameOf(opNames, op, TXT_UNKNOWN_OP); }
+static const char * errorName(uint8_t code) { return nameOf(errorNames, code, TXT_ERR_UNKNOWN); }
 
 // "Sensor 1" o "Pantalla" según el campo dispositivo de la cabecera
 static void printDevice(uint8_t device)
