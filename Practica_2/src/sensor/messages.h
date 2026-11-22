@@ -45,9 +45,14 @@ typedef struct __attribute__((aligned(PORT_NATURAL_ALIGN))) {
 #define MEASURE_OK     1   // result: value es una medida válida
 #define MEASURE_ERROR  2   // result: la medida falló (I2C)
 
+// event: cambio de estado que no es una acción del usuario (p. ej. el estado
+// inicial al arrancar). La pantalla lo guarda pero no lo pinta como "Ultima
+// accion". Fuera del rango de operaciones del protocolo (4 bits: 0x0-0xF)
+#define NO_SHOW_OPERATION  0xFF
+
 typedef struct {
     uint8_t  sensor;      // 1 o 2, como en el protocolo
-    uint8_t  event;       // operación que lo provoca (protocol.h), 0 al arrancar
+    uint8_t  event;       // operación que lo provoca (protocol.h) o NO_SHOW_OPERATION
     uint8_t  unit;        // PROTO_UNIT_*
     uint8_t  periodic;    // 1 si la medida periódica está activa
     uint8_t  result;      // NO_MEASURE, MEASURE_OK o MEASURE_ERROR

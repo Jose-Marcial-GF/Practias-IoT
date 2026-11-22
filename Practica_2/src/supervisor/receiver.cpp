@@ -39,13 +39,6 @@ static bool readBody(uint8_t from, uint8_t len)
   return true;
 }
 
-static const char * unitName(uint8_t unit)
-{
-  if (unit == PROTO_UNIT_INC) return "in";
-  if (unit == PROTO_UNIT_CM)  return "cm";
-  return "us";
-}
-
 // Pareja código -> texto. El texto NULL marca el final de cada tabla
 typedef struct {
   uint8_t code;
@@ -109,32 +102,32 @@ static bool handleMessage(uint8_t head)
   // ERROR: siempre lleva el código de error
   if (!resp) {
     if (!message || !readBody(0, 1)) return false;
-    chMtxLock(&usbMutex);
+    outputBegin();
     SerialUSB.print("ERROR ");
     printDevice(device);
     SerialUSB.print(" (");
     SerialUSB.print(opName(op));
     SerialUSB.print("): ");
     SerialUSB.println(errorName(body[0]));
-    chMtxUnlock(&usbMutex);
+    outputEnd();
     return true;
   }
 
   // ACK: sin cuerpo
   if (!message) {
-    chMtxLock(&usbMutex);
+    outputBegin();
     printDevice(device);
     SerialUSB.print(" ");
     SerialUSB.print(opName(op));
     SerialUSB.println(": OK");
-    chMtxUnlock(&usbMutex);
+    outputEnd();
     return true;
   }
 
   switch (op) {
     case US_LIST: {
       if (!readBody(0, 1) || body[0] > MAX_LIST || !readBody(1, 2 * body[0])) return false;
-      chMtxLock(&usbMutex);
+      outputBegin();
       SerialUSB.print("Sensores disponibles: ");
       SerialUSB.println(body[0]);
       for (int i = 0; i < body[0]; i++) {
@@ -143,13 +136,13 @@ static bool handleMessage(uint8_t head)
         SerialUSB.print(": dirección I2C 0x");
         SerialUSB.println(body[2 + 2 * i] << 1, HEX);   // 8 bits, como en el SRF02
       }
-      chMtxUnlock(&usbMutex);
+      outputEnd();
       return true;
     }
 
     case OP_STATUS:   // dirección, unidad, retardo(2), periódico, periodo(2)
       if (!readBody(0, 7)) return false;
-      chMtxLock(&usbMutex);
+      outputBegin();
       printDevice(device);
       SerialUSB.println(":");
       SerialUSB.print("  dirección I2C: 0x");
@@ -166,25 +159,106 @@ static bool handleMessage(uint8_t head)
       } else {
         SerialUSB.println("  medida periódica: no");
       }
-      chMtxUnlock(&usbMutex);
+      outputEnd();
       return true;
 
     case US_ONESHOT:
     case OP_US_PERIODIC_ON:   // unidad, valor(2)
       if (!readBody(0, 3)) return false;
-      chMtxLock(&usbMutex);
+      outputBegin();
       printDevice(device);
       SerialUSB.print(op == US_ONESHOT ? " (one-shot): " : " (periódica): ");
       SerialUSB.print(PROTO_GET16(&body[1]));
       SerialUSB.print(" ");
       SerialUSB.println(unitName(body[0]));
-      chMtxUnlock(&usbMutex);
+      outputEnd();
       return true;
 
     default:
       return false;   // cabecera que no corresponde a ninguna respuesta
   }
 }
+
+/* ------------------------- Espera de la respuesta ------------------------- */
+// Comando que espera la consola. pendingLeft es lo que manda: cuántas
+// respuestas faltan (0: no se espera nada). El semáforo solo sirve para
+// despertar a la consola cuando cambia; el mutex protege los tres campos,
+// que tocan las dos hebras
+static SEMAPHORE_DECL(respSem, 0);
+static MUTEX_DECL(respMutex);
+static uint8_t pendingDevice;
+static uint8_t pendingOp;
+static uint8_t pendingLeft = 0;
+
+// consola: se llama ANTES de enviar, así la respuesta no puede llegar antes
+// de que se sepa que se espera
+void expectResponse(uint8_t device, uint8_t op)
+{
+  chMtxLock(&respMutex);
+  pendingDevice = device;
+  pendingOp     = op;
+  // "us both ..." contesta cada sensor por separado. La lista es una sola
+  pendingLeft   = (device == DEVICE_BOTH && op != US_LIST) ? N_SENSORS : 1;
+  chSemReset(&respSem, 0);   // descarta avisos de comandos anteriores
+  chMtxUnlock(&respMutex);
+}
+
+// consola: espera como mucho timeout_ms. Devuelve las respuestas que faltan
+uint8_t waitResponse(uint32_t timeout_ms)
+{
+  systime_t start = chVTGetSystemTimeX();
+  sysinterval_t timeout = TIME_MS2I(timeout_ms);
+
+  while (true) {
+    chMtxLock(&respMutex);
+    uint8_t left = pendingLeft;
+    chMtxUnlock(&respMutex);
+    if (left == 0) break;
+
+    sysinterval_t elapsed = chVTTimeElapsedSinceX(start);
+    if (elapsed >= timeout) break;
+    chSemWaitTimeout(&respSem, timeout - elapsed);   // dormir hasta un aviso
+  }
+
+  chMtxLock(&respMutex);
+  uint8_t left = pendingLeft;
+  pendingLeft = 0;           // lo que llegue tarde se muestra, pero ya no cuenta
+  chMtxUnlock(&respMutex);
+  return left;
+}
+
+// receptor: se llama con cada mensaje válido ya mostrado. Si es la respuesta
+// que espera la consola, se descuenta y se la despierta
+static void notifyResponse(uint8_t head)
+{
+  bool    resp    = head & RESP;
+  bool    message = head & MESSAGE;
+  uint8_t device  = (head & SENSORES) >> SENSOR_POSITION;
+  uint8_t op      = head & 0x0F;
+
+  // Las medidas periódicas llegan solas, no responden a ningún comando. Llevan
+  // OP_US_PERIODIC_ON igual que la respuesta a "on", pero se distinguen:
+  //   - "on" se contesta con ACK (sin cuerpo) o con error BUSY
+  //   - una medida periódica lleva cuerpo, o es un error I2C
+  if (op == OP_US_PERIODIC_ON) {
+    if (resp && message) return;
+    if (!resp && body[0] != PROTO_ERROR_BUSY) return;   // body[0]: código de error
+  }
+
+  chMtxLock(&respMutex);
+  if (pendingLeft > 0 && op == pendingOp) {
+    bool match = true;
+    if (device == pendingDevice)
+      pendingLeft = 0;       // respuesta completa (o error que vale por los dos)
+    else if (pendingDevice == DEVICE_BOTH && device >= 1 && device <= N_SENSORS)
+      pendingLeft--;         // "both": la respuesta de uno de los sensores
+    else
+      match = false;
+    if (match) chSemSignal(&respSem);
+  }
+  chMtxUnlock(&respMutex);
+}
+
 
 static THD_FUNCTION(receiverThread, arg)
 {
@@ -195,7 +269,7 @@ static THD_FUNCTION(receiverThread, arg)
     readByte(&head, 0);   // la cabecera se espera sin límite
     // Si la cabecera no es válida o el cuerpo no llega, se descarta y se
     // sigue con el siguiente byte: así se recupera el sincronismo
-    handleMessage(head);
+    if (handleMessage(head)) notifyResponse(head);
   }
 }
 

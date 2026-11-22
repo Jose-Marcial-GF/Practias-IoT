@@ -48,9 +48,6 @@ static const uint8_t PROTO_ERR_I2C_SENSORES =        3;
 static const uint8_t PROTO_ERR_I2C_PANTALLA =        4;
 static const uint8_t PROTO_ERROR_BUSY =              5;
 
-//ACK (no creo que haga falta)
-static const uint8_t ACK = 0x7E;
-static const uint8_t NO_ACK = 0x11;
 
 static const uint16_t MIN_DELAY_SFR = 70;
 static const uint16_t MAX_DELAY_SFR = 60000;   // 1 minuto
@@ -59,6 +56,17 @@ static uint8_t writeMessage(uint8_t * body, uint8_t len)
 {
   Serial1.write(body, len);
   return 0;
+}
+
+// Nombre corto de una unidad del protocolo. PROTO_UNIT_MS es el tiempo de
+// vuelo, que el SRF02 devuelve en microsegundos
+static inline const char *unitName(uint8_t unit)
+{
+    switch (unit) {
+        case PROTO_UNIT_INC: return "in";
+        case PROTO_UNIT_CM:  return "cm";
+        case PROTO_UNIT_MS:  return "us";
+    }
 }
 
 static inline uint8_t generateHead(uint8_t command, uint8_t device,

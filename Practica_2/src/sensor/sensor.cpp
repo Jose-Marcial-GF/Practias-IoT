@@ -229,7 +229,7 @@ static THD_FUNCTION(sensor, arg)
     systime_t deadline_i = chVTGetSystemTimeX();
 
     // La pantalla empieza con la configuración inicial de este sensor
-    publish(id, 0, NO_MEASURE, 0, periodic, period_i);
+    publish(id, NO_SHOW_OPERATION, NO_MEASURE, 0, periodic, period_i);
 
     while (true) {
         // El mailbox hace de despertador y de temporizador: se espera un
