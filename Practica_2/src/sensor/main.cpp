@@ -1,34 +1,46 @@
-/* ----------------------------------------------------------------------
-*  Dispositivo sensor
-*    Recibe comandos del supervisor por Serial1, los ejecuta sobre los
-*    SRF02 (I2C) y le devuelve las respuestas por Serial1.
-*
-*    Hebras: reader (Serial1 -> mailbox de cada sensor),
-*            sensor 1 y sensor 2 (I2C),
-*            writer (mailbox -> Serial1)
-*
-*  Asignatura (GII-IC)
-* ----------------------------------------------------------------------
-*/
+/* ----------------------------------------------------------------------------
+ *  Práctica 2 - Dispositivo sensor - Arduino MKR WAN 1310 + ChibiOS
+ *
+ *  1. Comprueba al arrancar qué SRF02 y qué pantalla OLED contestan en el I2C.
+ *  2. Recibe por Serial1 los comandos binarios del supervisor (protocol.h).
+ *  3. Cada SRF02 tiene su hebra: aplica los comandos, mide (one-shot o
+ *     periódico) y contesta con ACK, error o la medida.
+ *  4. La pantalla OLED muestra en todo momento la configuración y la última
+ *     medida de cada sensor y la última acción realizada.
+ *  5. Hebras (se comunican con mailboxes + memory pools):
+ *     - reader: lee Serial1 y reparte cada comando al sensor o a la pantalla
+ *     - sensor: una por SRF02, ejecuta los comandos y mide
+ *     - screen: pinta la pantalla OLED
+ *     - writer: única hebra que escribe en Serial1 (respuestas al supervisor)
+ *     El bus I2C lo comparten sensores y pantalla, protegido con i2c_mtx.
+ *
+ *  Conexión de Serial1 con el supervisor: TX con RX cruzados y GND común.
+ *
+ *  Autores:
+ *  Juan Daniel López Melainine
+ *  José Marcial Galván Franco
+ * ----------------------------------------------------------------------------
+ */
 
 #include <Arduino.h>
 #include <Wire.h>
 #include "messages.h"
 
+// Parámetros
+constexpr const uint32_t serial_monitor_bauds = 115200;   // monitor de depuración
+constexpr const uint32_t MONITOR_WAIT_MS      = 2000;     // espera máxima al monitor
 
-constexpr const uint32_t serial_monitor_bauds=115200;
-constexpr const uint32_t MONITOR_WAIT_MS=2000;
 
-
-// ----------------------------------------------------------------------
-// Continúa setup() tras chBegin(): comprueba los sensores y lanza las hebras
-// ----------------------------------------------------------------------
+// Continúa el setup() ya dentro de ChibiOS: comprueba el I2C y lanza las hebras
 void chSetup(){
+    // Qué SRF02 contestan
     for (int i = 0; i < N_SENSORS; i++) {
         Serial.print("Sensor "); Serial.print(i + 1);
         Serial.print(" (0x"); Serial.print(sensor_addr[i], HEX); Serial.print("): ");
         Serial.println(checkSensor(sensor_addr[i]) ? "OK" : "NO RESPONDE");
     }
+
+    // Si contesta la pantalla (si no, su hebra la sigue buscando)
     uint8_t screen_addr = check_screen();
     Serial.print("Pantalla");
     if (screen_addr != 0) {
@@ -37,44 +49,31 @@ void chSetup(){
         Serial.println(": NO RESPONDE");
     }
 
-    // El writer primero: las demás hebras le mandan sus respuestas
-    startWriter();
-    // La pantalla antes que los sensores: al arrancar le mandan su estado
-    startScreen();
+    // El orden importa: primero quien recibe mensajes, el reader el último
+    startWriter();   // las demás hebras le mandan sus respuestas
+    startScreen();   // los sensores le mandan su estado al arrancar
     startSensor();
-    // El reader el último: cuando llegue un comando todo está ya en marcha
-    startReader();
+    startReader();   // cuando llegue un comando todo está ya en marcha
 }
 
-
-// ----------------------------------------------------------------------
-// setup() activa los dispositivos y arranca ChibiOS
-// ----------------------------------------------------------------------
 void setup()
 {
     pinMode(LED_BUILTIN, OUTPUT);
 
-    // Inicialización del puerto para el serial monitor
+    // Monitor de depuración: si no hay PC conectado se arranca igualmente
     Serial.begin(serial_monitor_bauds);
-    // Espera al monitor como mucho MONITOR_WAIT_MS: si la placa solo está
-    // conectada al supervisor (sin PC), arranca igualmente
     uint32_t start_ms = millis();
     while (!Serial && millis() - start_ms < MONITOR_WAIT_MS);
 
-    //Comunicación entre sensores
+    // Bus I2C (SRF02 y pantalla), el MKR es el maestro
     Wire.begin();
 
-    // Inicialización del puerto de comunicaciones con el otro dispositivo MKR
+    // Puerto serie con el supervisor
     Serial1.begin(PROTO_BAUD);
 
-    // chBegin() resetea el stack y nunca retorna.
+    // Arranca ChibiOS y sigue en chSetup(). No retorna
     chBegin(chSetup);
 }
 
-// ----------------------------------------------------------------------
-// loop() actúa como hebra idle (NORMALPRIO): en lib/ChRt-master,
-// CH_CFG_NO_IDLE_THREAD es TRUE, así que ChibiOS no crea la suya.
-// NO debe dormir ni esperar: si todas las hebras quedan bloqueadas a la
-// vez, el planificador no tiene nada que ejecutar y la placa se cuelga.
-// ----------------------------------------------------------------------
+// Hebra idle de ChibiOS: no hace nada
 void loop() {}

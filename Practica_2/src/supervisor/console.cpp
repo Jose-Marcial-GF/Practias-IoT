@@ -6,27 +6,21 @@
 
 static THD_WORKING_AREA(waConsole, 2048);
 
-/* ------------------------- Línea que se está escribiendo ------------------ */
-// La escribe la consola y la vuelve a pintar el receptor cuando muestra un
-// mensaje (p. ej. una medida periódica) mientras el usuario está escribiendo.
-// Las dos hebras la tocan, así que solo se usa con usbMutex cogido
 static char input[CONSOLE_LINE_MAX];
-static int  inputLen = 0;              // caracteres escritos en la línea
+static int  inputLen = 0;
 
 void outputBegin()
 {
   chMtxLock(&usbMutex);
-  if (inputLen > 0) SerialUSB.println();     // el mensaje empieza en su propia línea
+  if (inputLen > 0) SerialUSB.println();
 }
 
 void outputEnd()
 {
-  if (inputLen > 0) SerialUSB.write((const uint8_t *)input, inputLen);   // se repinta
+  if (inputLen > 0) SerialUSB.write((const uint8_t *)input, inputLen);
   chMtxUnlock(&usbMutex);
 }
 
-// Escribe un texto en el monitor serie. Se usa el cerrojo porque la hebra
-// receptor también escribe en SerialUSB y los mensajes no deben mezclarse.
 static uint8_t say(const char * text)
 {
   chMtxLock(&usbMutex);
@@ -63,25 +57,17 @@ static uint8_t ArgumentError(const char* message)
   return 1 ;
 }
 
-// true si la palabra existe y es igual al texto
 static bool is(const char * word, const char * text)
 {
   return word != NULL && strcmp(word, text) == 0;
 }
 
-// Retardo mínimo que tiene configurado cada sensor, según los comandos delay
-// que ha contestado. Un one-shot puede tardar ese retardo en medir, así que se
-// suma a su timeout. Empieza con el valor por defecto del sensor
 static uint16_t knownDelay[N_SENSORS] = { MIN_DELAY_SFR, MIN_DELAY_SFR };
 
-// Envía un comando y espera su respuesta como mucho timeout_ms (sin reintento).
-// device sin desplazar: DEVICE_SCREEN, 1, 2 o DEVICE_BOTH. Devuelve las
-// respuestas que no han llegado (0: todo bien). La respuesta en sí la muestra
-// la hebra receptor
 static uint8_t request(uint8_t device, uint8_t op, uint8_t *body, uint8_t len,
                        uint32_t timeout_ms)
 {
-  expectResponse(device, op);   // antes de enviar
+  expectResponse(device, op);
   if (len == 0) sendHead(OP, device << SENSOR_POSITION, NO_MESSAGE, op);
   else          sendMessage(OP, device << SENSOR_POSITION, MESSAGE, op, body, len);
 
@@ -101,7 +87,6 @@ static uint8_t sendCommand(uint8_t device, uint8_t op)
   return request(device, op, NULL, 0, RESP_TIMEOUT_MS);
 }
 
-// El one-shot espera además el retardo mínimo del sensor (el mayor si son dos)
 static uint8_t sendOneShot(uint8_t device)
 {
   uint16_t delay = 0;
@@ -119,7 +104,7 @@ static uint8_t sendUnit(uint8_t sensor, char* word){
 }
 
 static bool readMs(const char* word, uint16_t* ms){
-  if (word[0] == '-') return false;                                // no se aceptan negativos
+  if (word[0] == '-') return false;
   if (strtoul(word, NULL, 10) > MAX_DELAY_SFR) return false;
   *ms = strtoul(word, NULL, 10);
   return *ms >= MIN_DELAY_SFR;
@@ -132,8 +117,6 @@ static uint8_t sendDelay(uint8_t sensor, char* word){
   PROTO_PUT16(body, delay);
   uint8_t left = request(sensor, OP_US_SET_DELAY, body, sizeof(body), RESP_TIMEOUT_MS);
 
-  // Se apunta para el timeout del one-shot. Si alguno no ha contestado se
-  // apunta igual: es más seguro suponer el retardo mayor
   for (int i = 1; i <= N_SENSORS; i++)
     if (sensor == i || sensor == DEVICE_BOTH) knownDelay[i - 1] = delay;
   return left;
@@ -147,7 +130,6 @@ static uint8_t sendOn(uint8_t sensor, char* word){
   return request(sensor, OP_US_PERIODIC_ON, body, sizeof(body), RESP_TIMEOUT_MS);
 }
 
-
 static uint8_t handleLine(char * line)
 {
   uint8_t sensor;
@@ -158,33 +140,32 @@ static uint8_t handleLine(char * line)
   word[2] = strtok(NULL, " ");
   word[3] = strtok(NULL, " ");
   word[4] = strtok(NULL, "\n");
-  
+
   if (word[0] == NULL) return say("No se ha escrito nada");
   if (is(word[0], "help")) { return printHelp();  }
-
 
   if (is(word[0], "us")){
     if (word[1] == NULL) return sendCommand(DEVICE_BOTH, US_LIST);
     if (is(word[1], "both")) {sensor = DEVICE_BOTH;}
-    
+
     else {
       if (word[1][0] == '-') return say("El sensor mencionado no existe");
       sensor = (uint8_t)strtol(word[1], NULL, 10);
       if (sensor < 1 || sensor > DEVICE_BOTH) return say("El sensor mencionado no existe");
       }
-    
+
     if (is(word[2], "one-shot")) return word[3] == NULL ? sendOneShot(sensor) : unExpectedArgumentError();
-    
+
     if (is(word[2], "off")) return word[3] == NULL ? sendCommand(sensor, OP_US_PERIODIC_OFF) : unExpectedArgumentError();
-    
+
     if (is(word[2], "status")) return word[3] == NULL ? sendCommand(sensor, OP_STATUS) : unExpectedArgumentError();
-    
+
     if (is(word[2], "unit")) return word[3] != NULL && word[4] == NULL ? sendUnit(sensor, word[3]) : unExpectedArgumentError();
-    
+
     if (is(word[2], "delay")) return word[3] != NULL && word[4] == NULL ? sendDelay(sensor, word[3]) : unExpectedArgumentError();
-    
+
     if (is(word[2], "on")) return word[3] != NULL && word[4] == NULL ? sendOn(sensor, word[3]) : unExpectedArgumentError();
-  } 
+  }
   if (is(word[0], "oled")){
     if (is(word[1], "off")) return word[2] == NULL ? sendCommand(DEVICE_SCREEN, OP_OLED_OFF) : unExpectedArgumentError();
     if (is(word[1], "on")) return word[2] == NULL ?  sendCommand(DEVICE_SCREEN, OP_OLED_ON) : unExpectedArgumentError();
@@ -194,7 +175,7 @@ static uint8_t handleLine(char * line)
 
 static THD_FUNCTION(consoleThread, arg)
 {
-  char line[CONSOLE_LINE_MAX];         // copia de la línea para ejecutarla
+  char line[CONSOLE_LINE_MAX];
 
   say("Supervisor listo. Escribe help para ver los comandos.\n");
 
@@ -203,31 +184,28 @@ static THD_FUNCTION(consoleThread, arg)
       char c = SerialUSB.read();
       bool run = false;
 
-      // input e inputLen los repinta el receptor: se tocan con usbMutex
       chMtxLock(&usbMutex);
-      if (c == '\r' || c == '\n') {              // Enter: se ejecuta la línea
+      if (c == '\r' || c == '\n') {
         if (inputLen > 0) {
-          memcpy(line, input, inputLen);         // strtok modifica la línea:
-          line[inputLen] = '\0';                 // se trabaja sobre una copia
-          inputLen = 0;                          // ya no hay línea a medias
+          memcpy(line, input, inputLen);
+          line[inputLen] = '\0';
+          inputLen = 0;
           SerialUSB.print("\n");
           run = true;
         }
       }
-      else if (c == '\b' || c == 127) {          // borrar el último carácter
+      else if (c == '\b' || c == 127) {
         if (inputLen > 0) {
           inputLen--;
           SerialUSB.print("\b \b");
         }
       }
-      else if (inputLen < CONSOLE_LINE_MAX - 1) {  // carácter normal: se guarda y se muestra
+      else if (inputLen < CONSOLE_LINE_MAX - 1) {
         input[inputLen++] = c;
         SerialUSB.write(c);
       }
       chMtxUnlock(&usbMutex);
 
-      // Fuera del mutex: handleLine espera la respuesta, y mientras tanto el
-      // receptor tiene que poder escribir
       if (run) handleLine(line);
     }
     chThdSleepMilliseconds(10);

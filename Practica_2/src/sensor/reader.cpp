@@ -1,15 +1,8 @@
-//------------------------------------------------------------------------------
-// reader.cpp - Lee los comandos que llegan del supervisor por Serial1 y los
-// deja en el mailbox del sensor que toca (sensor_mb, declarado en sensor.cpp).
-// Sigue el esquema del ejemplo 2 de ChibiOS (worker -> mailbox -> printer)
-//
-// Formato de cada mensaje (protocol.h): código(1) | longitud(1) | cuerpo
-//------------------------------------------------------------------------------
 #include "messages.h"
 
 #define READER_THD_PRIO  (NORMALPRIO + 2)
-#define FRAME_TIMEOUT_MS 100   // espera máxima entre bytes de un mismo mensaje
-#define READER_POLL_MS   10     // cada cuánto se mira si han llegado bytes
+#define FRAME_TIMEOUT_MS 100
+#define READER_POLL_MS   10
 #define WAIT_FOREVER     0
 
 static THD_WORKING_AREA(waReader, 1024);
@@ -21,7 +14,7 @@ static bool read_byte(uint8_t *bytes, uint32_t timeout_ms)
         if (timeout_ms != WAIT_FOREVER &&
             chVTTimeElapsedSinceX(start_i) > TIME_MS2I(timeout_ms))
             return false;
-        chThdSleepMilliseconds(READER_POLL_MS); 
+        chThdSleepMilliseconds(READER_POLL_MS);
     }
     *bytes = (uint8_t)Serial1.read();
     return true;
@@ -54,7 +47,6 @@ static bool needsBody(uint8_t op)
     return op == OP_US_PERIODIC_ON || op == OP_US_SET_DELAY;
 }
 
-// true si op es uno de los códigos de petición de protocol.h
 static bool split_request(uint8_t head, uint8_t *sensor, bool *message, uint8_t *operation)
 {
     if (head & RESP) return false;
@@ -69,7 +61,6 @@ static bool split_request(uint8_t head, uint8_t *sensor, bool *message, uint8_t 
     return isUsOperation(*operation);
 }
 
-
 static void send_list()
 {
     uint8_t body[1 + 2 * N_SENSORS];
@@ -81,9 +72,6 @@ static void send_list()
     send2Writer(generateHead(RESP, SENSORES, MESSAGE, US_LIST), body, sizeof(body));
 }
 
-
-// Decide qué hacer con un mensaje completo
-// Deja un comando en un mailbox. Devuelve false si está lleno
 static bool post(mailbox_t * mb, uint8_t operation, uint16_t value)
 {
     return chMBPostTimeout(mb, packCommand(operation, value), TIME_IMMEDIATE) == MSG_OK;
@@ -111,7 +99,6 @@ static THD_FUNCTION(reader, arg)
     bool message;
 
     while (true) {
-        // 1. Código: se espera sin límite a que el supervisor mande algo
         read_byte(&head, WAIT_FOREVER);
 
         if (!split_request(head, &sensor, &message, &operation)) continue;
@@ -124,7 +111,6 @@ static THD_FUNCTION(reader, arg)
             value = PROTO_GET16(body);
         }
 
-        // 4. Al buzón de quien lo ejecuta
         dispatch(sensor, operation, value);
     }
 }
