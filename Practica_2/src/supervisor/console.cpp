@@ -42,7 +42,7 @@ static uint8_t printHelp()
       "  us <n> status              estado del sensor\n"
       "  oled on                 borra la pantalla\n"
       "  oled off                 borra la pantalla\n"
-      "  n = [1: first, 2: secound, both | 3: both ]"
+      "  n = [1: first, 2: secound, both | 3: both ]\n"
   );
   return 0;
 }

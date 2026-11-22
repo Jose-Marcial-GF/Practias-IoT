@@ -26,21 +26,17 @@
 #include <Wire.h>
 #include "messages.h"
 
-// Parámetros
-constexpr const uint32_t serial_monitor_bauds = 115200;   // monitor de depuración
-constexpr const uint32_t MONITOR_WAIT_MS      = 2000;     // espera máxima al monitor
+constexpr const uint32_t serial_monitor_bauds = 115200;
+constexpr const uint32_t MONITOR_WAIT_MS      = 2000;  
 
 
-// Continúa el setup() ya dentro de ChibiOS: comprueba el I2C y lanza las hebras
 void chSetup(){
-    // Qué SRF02 contestan
     for (int i = 0; i < N_SENSORS; i++) {
         Serial.print("Sensor "); Serial.print(i + 1);
-        Serial.print(" (0x"); Serial.print(sensor_addr[i], HEX); Serial.print("): ");
+        Serial.print(" (0x"); Serial.print(sensor_addr[i]<<1, HEX); Serial.print("): ");
         Serial.println(checkSensor(sensor_addr[i]) ? "OK" : "NO RESPONDE");
     }
 
-    // Si contesta la pantalla (si no, su hebra la sigue buscando)
     uint8_t screen_addr = check_screen();
     Serial.print("Pantalla");
     if (screen_addr != 0) {
@@ -49,29 +45,28 @@ void chSetup(){
         Serial.println(": NO RESPONDE");
     }
 
-    // El orden importa: primero quien recibe mensajes, el reader el último
-    startWriter();   // las demás hebras le mandan sus respuestas
-    startScreen();   // los sensores le mandan su estado al arrancar
+    startWriter();
+    startScreen();
     startSensor();
-    startReader();   // cuando llegue un comando todo está ya en marcha
+    startReader();
 }
 
 void setup()
 {
     pinMode(LED_BUILTIN, OUTPUT);
 
-    // Monitor de depuración: si no hay PC conectado se arranca igualmente
+ 
     Serial.begin(serial_monitor_bauds);
     uint32_t start_ms = millis();
     while (!Serial && millis() - start_ms < MONITOR_WAIT_MS);
 
-    // Bus I2C (SRF02 y pantalla), el MKR es el maestro
+ 
     Wire.begin();
 
-    // Puerto serie con el supervisor
+ 
     Serial1.begin(PROTO_BAUD);
 
-    // Arranca ChibiOS y sigue en chSetup(). No retorna
+ 
     chBegin(chSetup);
 }
 
