@@ -1,9 +1,8 @@
 /* ----------------------------------------------------------------------------
  *  Práctica 2 - Supervisor - Arduino MKR WAN 1310 + ChibiOS
  *
- *  1. Lee los comandos que escribe el usuario en el monitor serie (help, us,
- *     oled...).
- *  2. Los convierte en mensajes binarios (protocol.h) y los envía por Serial1
+ *  1. Lee los comandos que escribe el usuario en el monitor serie
+ *  2. Los convierte en mensajes binarios y los envía por Serial1 a traves del uart
  *     al dispositivo sensor.
  *  3. Espera la respuesta de cada comando como mucho RESP_TIMEOUT_MS (sin
  *     reintento) y avisa si no llega.
